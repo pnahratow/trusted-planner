@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::error::AppResult;
 use crate::routes::board::render_column;
-use crate::routes::{current_user, move_completed, render, ClientId};
+use crate::routes::{current_user, move_completed, render};
 use crate::views::{self, ColumnKey};
 use crate::{queries, AppState};
 
@@ -65,7 +65,6 @@ struct CreateForm {
 async fn create(
     State(state): State<AppState>,
     jar: axum_extra::extract::CookieJar,
-    ClientId(origin): ClientId,
     Path(board_id): Path<i64>,
     Form(f): Form<CreateForm>,
 ) -> AppResult {
@@ -90,7 +89,7 @@ async fn create(
                 Ok(())
             })
             .with_context(|| format!("adding a task to column {}", key.as_string()))?;
-        state.changes.record(board_id, &key, origin.as_deref());
+        state.changes.record(board_id, &key);
     }
 
     render_column(&state, board_id, key, move_completed(&state)?)
@@ -101,7 +100,6 @@ async fn create(
 fn mutate_in_place(
     state: &AppState,
     id: i64,
-    origin: Option<&str>,
     what: &'static str,
     run: impl FnOnce(&rusqlite::Connection) -> rusqlite::Result<()>,
 ) -> AppResult {
@@ -112,25 +110,17 @@ fn mutate_in_place(
         .db
         .with(run)
         .with_context(|| format!("{what} task {id}"))?;
-    state.changes.record(board_id, &key, origin);
+    state.changes.record(board_id, &key);
     render_column(state, board_id, key, move_completed(state)?)
 }
 
-async fn toggle(
-    State(state): State<AppState>,
-    ClientId(origin): ClientId,
-    Path(id): Path<i64>,
-) -> AppResult {
-    mutate_in_place(&state, id, origin.as_deref(), "toggling", move |conn| {
+async fn toggle(State(state): State<AppState>, Path(id): Path<i64>) -> AppResult {
+    mutate_in_place(&state, id, "toggling", move |conn| {
         queries::toggle_task(conn, id)
     })
 }
 
-async fn delete(
-    State(state): State<AppState>,
-    ClientId(origin): ClientId,
-    Path(id): Path<i64>,
-) -> AppResult {
+async fn delete(State(state): State<AppState>, Path(id): Path<i64>) -> AppResult {
     let Some((board_id, key)) = column_of(&state, id)? else {
         return Ok(bad("no such task"));
     };
@@ -139,7 +129,7 @@ async fn delete(
         .db
         .transaction(|tx| queries::delete_task(tx, id))
         .with_context(|| format!("deleting task {id}"))?;
-    state.changes.record(board_id, &key, origin.as_deref());
+    state.changes.record(board_id, &key);
     render_column(&state, board_id, key, move_completed(&state)?)
 }
 
@@ -224,7 +214,6 @@ struct UpdateForm {
 /// and there is no merge dialog (D12).
 async fn update(
     State(state): State<AppState>,
-    ClientId(origin): ClientId,
     Path(id): Path<i64>,
     Form(f): Form<UpdateForm>,
 ) -> AppResult {
@@ -251,7 +240,7 @@ async fn update(
     };
 
     if accepted {
-        state.changes.record(board_id, &key, origin.as_deref());
+        state.changes.record(board_id, &key);
         return render_column(&state, board_id, key, move_completed(&state)?);
     }
     // A refused write changed nothing, so there is nothing to tell anyone.
@@ -298,7 +287,6 @@ struct MoveForm {
 
 async fn move_task(
     State(state): State<AppState>,
-    ClientId(origin): ClientId,
     Path(id): Path<i64>,
     Form(f): Form<MoveForm>,
 ) -> AppResult {
@@ -324,9 +312,9 @@ async fn move_task(
         .with_context(|| format!("moving task {id} into column {}", dest.as_string()))?;
 
     // Both ends of the move changed, so both are invalidated.
-    state.changes.record(board_id, &dest, origin.as_deref());
+    state.changes.record(board_id, &dest);
     if origin_col != dest {
-        state.changes.record(board_id, &origin_col, origin.as_deref());
+        state.changes.record(board_id, &origin_col);
     }
 
     // The source column changed too when the task left it; the client refetches

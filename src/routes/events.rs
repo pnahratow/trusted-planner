@@ -15,26 +15,25 @@ pub fn router() -> Router<AppState> {
 #[derive(Deserialize)]
 struct Poll {
     board: i64,
-    /// Where this client got to. 0 on a fresh page, which is not a gap.
+    /// The version this client last saw. 0 on a fresh page.
     #[serde(default)]
     since: u64,
-    /// This tab's id, so its own writes are not echoed back to it.
-    #[serde(default)]
-    client: Option<String>,
 }
 
-/// Answers in a few hundred microseconds and holds no connection open, so any
-/// number of tabs can poll without exhausting the browser's per-origin
-/// connection pool — see the note in `events.rs`.
+/// Answers in microseconds and holds no connection open, so any number of tabs
+/// can poll without exhausting the browser's per-origin connection pool — see
+/// the note in `events.rs`.
+///
+/// A tab is told about its own writes too. It has the answer already, so the
+/// re-fetch is redundant, but filtering it out needs the client to identify
+/// itself on every request and the server to track who caused what — real
+/// machinery to save one request on an app that is idle most of the time.
 async fn changes(State(state): State<AppState>, Query(poll): Query<Poll>) -> Response {
-    let changes = state
-        .changes
-        .since(poll.board, poll.since, poll.client.as_deref());
+    let changes = state.changes.since(poll.board, poll.since);
 
     Json(serde_json::json!({
         "seq": changes.seq,
         "keys": changes.keys,
-        "resync": changes.resync,
     }))
     .into_response()
 }

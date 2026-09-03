@@ -7,16 +7,6 @@
 
   var body = document.body;
 
-  // Identifies this tab so the server can tell it apart from other listeners.
-  var CLIENT_ID =
-    window.crypto && window.crypto.randomUUID
-      ? window.crypto.randomUUID()
-      : String(Date.now()) + "-" + String(Math.random()).slice(2);
-
-  body.addEventListener("htmx:configRequest", function (evt) {
-    evt.detail.headers["X-Client-Id"] = CLIENT_ID;
-  });
-
   // Which add-form (if any) started the request currently in flight. Without
   // this we cannot tell "the column re-rendered under me while I was typing"
   // — where the draft must be put back — from "I just submitted this form",
@@ -226,9 +216,7 @@
       polling = true;
 
       var url =
-        "/changes?board=" + encodeURIComponent(live.dataset.board) +
-        "&since=" + seq +
-        "&client=" + encodeURIComponent(CLIENT_ID);
+        "/changes?board=" + encodeURIComponent(live.dataset.board) + "&since=" + seq;
 
       fetch(url, { cache: "no-store" })
         .then(function (r) {
@@ -236,11 +224,15 @@
         })
         .then(function (data) {
           if (!data) return;
-          seq = data.seq;
-          if (data.resync) {
+          // The counter only ever climbs, so a smaller one means the server
+          // restarted and its numbering began again. We cannot tell what was
+          // missed, so re-fetch the lot.
+          if (data.seq < seq) {
+            seq = data.seq;
             refreshAllColumns();
             return;
           }
+          seq = data.seq;
           for (var i = 0; i < data.keys.length; i++) {
             var col = document.getElementById("col-" + data.keys[i]);
             // A column that is not on screen (another week) needs nothing.

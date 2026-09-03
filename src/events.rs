@@ -1,57 +1,47 @@
-//! The change log clients poll to learn which columns need re-fetching.
+//! What clients poll to learn which columns to re-fetch.
 //!
-//! ## Why polling and not SSE
+//! ## Why polling
 //!
-//! This started as a `broadcast` channel behind an SSE stream, which worked
-//! and was pleasantly instant — until five tabs were open. A browser allows
-//! only six concurrent connections per origin over HTTP/1.1, and every SSE
-//! stream holds one open for its lifetime. At five tabs the sixth connection
-//! is the last one, and *every* further request to the app queues forever:
-//! adds do nothing, the page appears frozen. Measured, not theorised.
+//! This was server-sent events first, and it worked — until five tabs were
+//! open. A browser allows six concurrent connections per origin over HTTP/1.1
+//! and an SSE stream holds one open for its lifetime, so at five tabs every
+//! further request queues forever and the app appears frozen. HTTP/2 would fix
+//! it, but browsers only negotiate that over TLS and v1 is plain HTTP on the
+//! LAN. Short polls hold nothing open. The app is idle most of the time and has
+//! a handful of users, so the traffic is irrelevant either way.
 //!
-//! HTTP/2 would multiplex this away, but browsers only negotiate it over TLS,
-//! and v1 is plain HTTP on the LAN. So the transport is short polls, which
-//! hold no connection open, cannot exhaust the pool, and survive any buffering
-//! proxy in between. D3 asks for "seconds, not sub-second", which this meets.
+//! ## The whole model
 //!
-//! Each change gets a sequence number, so a client says where it got to and
-//! gets back exactly what it missed — reconnects and sleeping laptops need no
-//! special handling.
+//! A counter that increments on every write, and the value it had when each
+//! column last changed. A client says which value it last saw; it gets back the
+//! columns that have changed since, and the current value to quote next time.
+//!
+//! That is all. There is no event history to size, evict or fall off the end
+//! of: one entry per column, holding only its latest version, is enough to
+//! answer any client no matter how far behind it is.
 
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::views::ColumnKey;
 
-/// Enough history that a tab asleep for hours still resyncs incrementally at
-/// household write rates; anything older is answered with a full resync.
-const HISTORY: usize = 1000;
-
-#[derive(Clone, Debug)]
-struct Entry {
-    seq: u64,
-    board_id: i64,
-    key: String,
-    origin: Option<String>,
-}
-
 #[derive(Default)]
 struct Inner {
+    /// Increments on every recorded change. Also the version stamped on the
+    /// column that changed, which is what makes "since" comparisons work.
     seq: u64,
-    entries: VecDeque<Entry>,
+    /// `(board, column key) -> the seq at which it last changed`.
+    columns: HashMap<(i64, String), u64>,
 }
 
 pub struct ChangeLog {
     inner: Mutex<Inner>,
 }
 
-/// What a polling client needs: the columns to re-fetch, and where to resume.
+/// The columns a client needs to re-fetch, and where to resume from.
 pub struct Changes {
     pub seq: u64,
     pub keys: Vec<String>,
-    /// The client asked from further back than we still remember, so it cannot
-    /// be brought up to date incrementally.
-    pub resync: bool,
 }
 
 impl ChangeLog {
@@ -61,58 +51,34 @@ impl ChangeLog {
         }
     }
 
-    /// Records that a column changed. `origin` is the browser tab responsible,
-    /// which already holds the server's answer and is filtered out of its own
-    /// poll results.
-    pub fn record(&self, board_id: i64, key: &ColumnKey, origin: Option<&str>) {
+    pub fn record(&self, board_id: i64, key: &ColumnKey) {
         let mut inner = self.inner.lock().expect("change log poisoned");
         inner.seq += 1;
-        let entry = Entry {
-            seq: inner.seq,
-            board_id,
-            key: key.as_string(),
-            origin: origin.map(str::to_owned),
-        };
-        inner.entries.push_back(entry);
-        while inner.entries.len() > HISTORY {
-            inner.entries.pop_front();
-        }
-        drop(inner); // hold the lock no longer than the write itself
+        let seq = inner.seq;
+        inner.columns.insert((board_id, key.as_string()), seq);
+        drop(inner);
     }
 
+    /// The version a freshly rendered page reflects.
     pub fn current_seq(&self) -> u64 {
         self.inner.lock().expect("change log poisoned").seq
     }
 
-    /// Columns on `board_id` that changed after `since`, excluding those this
-    /// client caused itself. Keys are de-duplicated: a column touched five
-    /// times still only needs fetching once.
-    pub fn since(&self, board_id: i64, since: u64, client: Option<&str>) -> Changes {
+    /// Columns on this board that changed after `since`.
+    ///
+    /// A client arbitrarily far behind is served correctly, because each column
+    /// carries its latest version rather than a place in a queue.
+    pub fn since(&self, board_id: i64, since: u64) -> Changes {
         let inner = self.inner.lock().expect("change log poisoned");
-
-        let oldest = inner.entries.front().map_or(inner.seq, |e| e.seq);
-        // `since > seq` means the server restarted and its counter went
-        // backwards; treat that like any other gap.
-        let resync = since > inner.seq || (since > 0 && since + 1 < oldest);
-
-        let mut keys: Vec<String> = Vec::new();
-        if !resync {
-            for e in inner
-                .entries
-                .iter()
-                .filter(|e| e.seq > since && e.board_id == board_id)
-            {
-                let own = matches!((client, e.origin.as_deref()), (Some(c), Some(o)) if c == o);
-                if !own && !keys.contains(&e.key) {
-                    keys.push(e.key.clone());
-                }
-            }
-        }
-
+        let keys = inner
+            .columns
+            .iter()
+            .filter(|((board, _), version)| *board == board_id && **version > since)
+            .map(|((_, key), _)| key.clone())
+            .collect();
         Changes {
             seq: inner.seq,
             keys,
-            resync,
         }
     }
 }
@@ -132,11 +98,15 @@ mod tests {
         ColumnKey::Day(NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap())
     }
 
+    fn sorted(mut keys: Vec<String>) -> Vec<String> {
+        keys.sort();
+        keys
+    }
+
     #[test]
-    fn a_fresh_client_starting_at_zero_is_not_a_gap() {
+    fn a_fresh_client_on_an_untouched_board_has_nothing_to_do() {
         let log = ChangeLog::new();
-        let out = log.since(1, 0, None);
-        assert!(!out.resync, "an empty log is not a gap");
+        let out = log.since(1, 0);
         assert_eq!(out.seq, 0);
         assert_eq!(out.keys, Vec::<String>::new());
     }
@@ -144,77 +114,63 @@ mod tests {
     #[test]
     fn only_the_asked_for_board_comes_back() {
         let log = ChangeLog::new();
-        log.record(1, &day("2026-09-03"), None);
-        log.record(2, &day("2026-09-04"), None);
+        log.record(1, &day("2026-09-03"));
+        log.record(2, &day("2026-09-04"));
 
-        assert_eq!(log.since(1, 0, None).keys, ["2026-09-03"]);
-        assert_eq!(log.since(2, 0, None).keys, ["2026-09-04"]);
+        assert_eq!(log.since(1, 0).keys, ["2026-09-03"]);
+        assert_eq!(log.since(2, 0).keys, ["2026-09-04"]);
     }
 
     #[test]
-    fn a_client_only_receives_what_it_has_not_seen() {
+    fn a_client_only_hears_about_what_it_has_not_seen() {
         let log = ChangeLog::new();
-        log.record(1, &day("2026-09-03"), None);
-        let first = log.since(1, 0, None);
-        assert_eq!(first.keys.len(), 1);
+        log.record(1, &day("2026-09-03"));
+        let caught_up = log.since(1, 0).seq;
+        assert_eq!(log.since(1, caught_up).keys, Vec::<String>::new());
 
-        // Nothing new since.
-        assert_eq!(log.since(1, first.seq, None).keys, Vec::<String>::new());
-
-        log.record(1, &day("2026-09-05"), None);
-        assert_eq!(log.since(1, first.seq, None).keys, ["2026-09-05"]);
+        log.record(1, &day("2026-09-05"));
+        assert_eq!(log.since(1, caught_up).keys, ["2026-09-05"]);
     }
 
     #[test]
-    fn a_column_touched_repeatedly_is_fetched_once() {
+    fn a_column_touched_repeatedly_is_still_fetched_once() {
         let log = ChangeLog::new();
         for _ in 0..5 {
-            log.record(1, &day("2026-09-03"), None);
+            log.record(1, &day("2026-09-03"));
         }
-        log.record(1, &ColumnKey::List(7), None);
-        assert_eq!(log.since(1, 0, None).keys, ["2026-09-03", "list-7"]);
+        log.record(1, &ColumnKey::List(7));
+        assert_eq!(
+            sorted(log.since(1, 0).keys),
+            ["2026-09-03".to_string(), "list-7".to_string()]
+        );
     }
 
+    /// The reason a column stores its latest version rather than taking a place
+    /// in a queue: no amount of falling behind can lose an update.
     #[test]
-    fn a_tab_does_not_hear_its_own_writes_back() {
+    fn a_client_arbitrarily_far_behind_is_still_answered_correctly() {
         let log = ChangeLog::new();
-        log.record(1, &day("2026-09-03"), Some("tab-a"));
-        log.record(1, &ColumnKey::List(2), Some("tab-b"));
-
-        assert_eq!(log.since(1, 0, Some("tab-a")).keys, ["list-2"]);
-        assert_eq!(log.since(1, 0, Some("tab-b")).keys, ["2026-09-03"]);
-        // An anonymous poller still sees everything.
-        assert_eq!(log.since(1, 0, None).keys.len(), 2);
-    }
-
-    #[test]
-    fn falling_further_behind_than_the_history_asks_for_a_resync() {
-        let log = ChangeLog::new();
-        for _ in 0..(HISTORY + 50) {
-            log.record(1, &day("2026-09-03"), None);
+        for _ in 0..10_000 {
+            log.record(1, &day("2026-09-03"));
         }
-        // Sequence 1 has long since been evicted.
-        assert!(log.since(1, 1, None).resync);
-        // Someone up to date is fine.
-        let seq = log.current_seq();
-        assert!(!log.since(1, seq, None).resync);
+        log.record(1, &ColumnKey::List(1));
+
+        let out = log.since(1, 0);
+        assert_eq!(
+            sorted(out.keys),
+            ["2026-09-03".to_string(), "list-1".to_string()],
+            "each column reported once, however long ago the client last looked"
+        );
     }
 
     #[test]
-    fn a_sequence_from_the_future_means_the_server_restarted() {
+    fn one_entry_per_column_however_many_writes() {
         let log = ChangeLog::new();
-        log.record(1, &day("2026-09-03"), None);
-        // The client remembers a counter from a previous process lifetime.
-        assert!(log.since(1, 9999, None).resync);
-    }
-
-    #[test]
-    fn history_is_bounded() {
-        let log = ChangeLog::new();
-        for _ in 0..(HISTORY * 2) {
-            log.record(1, &day("2026-09-03"), None);
+        for _ in 0..1_000 {
+            log.record(1, &day("2026-09-03"));
         }
         let inner = log.inner.lock().unwrap();
-        assert_eq!(inner.entries.len(), HISTORY);
+        assert_eq!(inner.columns.len(), 1, "nothing accumulates per write");
+        assert_eq!(inner.seq, 1_000);
     }
 }

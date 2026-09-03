@@ -23,30 +23,6 @@ pub fn router() -> Router<AppState> {
         .merge(task::router())
 }
 
-/// The browser tab that made a request, if it said. Sent as a header by
-/// `app.js` so a tab can ignore the invalidation caused by its own write — it
-/// already has the server's answer, and re-fetching would double every
-/// mutation's traffic and fight for the cursor.
-pub struct ClientId(pub Option<String>);
-
-impl<S: Sync> axum::extract::FromRequestParts<S> for ClientId {
-    type Rejection = std::convert::Infallible;
-
-    // Reading a header needs no async machinery, so hand back a ready future
-    // rather than building a state machine for it.
-    fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _state: &S,
-    ) -> impl std::future::Future<Output = std::result::Result<Self, Self::Rejection>> {
-        let id = parts
-            .headers
-            .get("X-Client-Id")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        std::future::ready(Ok(Self(id)))
-    }
-}
-
 /// Identity is a cookie holding a user id and nothing else — no session store,
 /// no auth, no permission checks (D8). Everyone on the LAN is trusted.
 pub const IDENTITY_COOKIE: &str = "user_id";
