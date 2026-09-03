@@ -127,7 +127,6 @@ textarea { resize: vertical; width: 100%; }
   overflow: hidden;
 }
 .column.is-today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.column.is-outside { opacity: 0.55; }
 .column.is-list .col-heading { color: var(--accent); }
 
 .column-head {
@@ -275,3 +274,78 @@ textarea { resize: vertical; width: 100%; }
 
 /* Give an empty column a real drop target rather than a one-line strip. */
 .tasks { min-height: 42px; }
+
+/* ------------------------------------------------------ four-week grid */
+
+.weeks-head, .weeks-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--gap);
+}
+.weeks-head {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.82em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.weeks-head span { padding-left: 4px; }
+.weeks-grid { align-items: stretch; }
+
+/* A compact column is a calendar cell. The grid is always 4x7, so every cell
+   is the same size and every row lines up — no month-dependent reflow. */
+.column.is-compact { min-height: 116px; }
+.column.is-compact .column-head { padding: 5px 8px; }
+.column.is-compact .col-heading { font-weight: 500; font-size: 0.95em; }
+.column.is-compact .tasks { padding: 2px; }
+.column.is-compact .task { font-size: 0.88em; }
+.column.is-compact .task-title { padding: 1px 2px; }
+.column.is-compact .empty { display: none; }
+.column.is-compact .add-input { padding: 4px 8px; font-size: 0.88em; }
+.column.is-today .col-heading { color: var(--accent); font-weight: 700; }
+
+.more-link {
+  background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: 0.82em; text-align: left;
+  color: var(--accent); padding: 2px 8px 6px;
+}
+.more-link:hover { text-decoration: underline; }
+
+@media (max-width: 780px) {
+  .weeks-head { display: none; }
+  .weeks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ------------------------------------------------------------ day panel */
+
+/* Empty until a day is opened, so it needs no JavaScript to stay out of the
+   way — and none to appear. */
+.day-panel:empty { display: none; }
+
+.panel-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10;
+}
+.panel-card {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(70vh, 640px);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  z-index: 11;
+  overflow: hidden;
+}
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-head h2 { margin: 0; font-size: 1rem; }
+.panel-close { opacity: 1; font-size: 20px; }
+.panel-card .column { border: 0; border-radius: 0; overflow-y: auto; }

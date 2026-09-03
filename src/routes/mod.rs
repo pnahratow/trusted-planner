@@ -23,6 +23,37 @@ pub fn router() -> Router<AppState> {
         .merge(task::router())
 }
 
+/// Which grid this request came from, taken from the page URL htmx sends on
+/// every request.
+///
+/// A mutation has to answer in the shape of the page that asked: ticking a task
+/// off inside a four-week cell must come back as a cell, not as a full column.
+/// Deriving it from one header rather than threading a hidden field through
+/// every form means no handler can quietly forget it.
+pub struct Density(pub &'static str);
+
+impl<S: Sync> axum::extract::FromRequestParts<S> for Density {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> impl std::future::Future<Output = std::result::Result<Self, Self::Rejection>> {
+        let from_month = parts
+            .headers
+            .get("HX-Current-URL")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|url| url.split('?').next())
+            .is_some_and(|path| path.contains("/4w/"));
+
+        std::future::ready(Ok(Self(if from_month {
+            crate::views::COMPACT
+        } else {
+            crate::views::FULL
+        })))
+    }
+}
+
 /// Identity is a cookie holding a user id and nothing else — no session store,
 /// no auth, no permission checks (D8). Everyone on the LAN is trusted.
 pub const IDENTITY_COOKIE: &str = "user_id";

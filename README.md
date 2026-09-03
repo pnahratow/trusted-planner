@@ -67,7 +67,20 @@ re-rendering it would destroy the edit and the version it is checked against.
 Typing in the "add task" box does not defer, because the draft and caret are
 restored across the swap.
 
+## Views
+
+A week grid, and a four-week grid, over the same data — a day is a list with a
+date, so the second view is a different renderer, not a different data model.
+Everything below that line is shared: the queries, the column markup, and so
+drag & drop, live updates and the compare-and-swap editor all work identically
+in both.
+
+Four weeks rather than a calendar month on purpose. A month grid is 35 cells
+some months and 42 others, so rows reflow and change height as you page through
+it; 4x7 never does. A cell that runs out of room shows "+N more", which opens
+that day in full — the same column partial, so it behaves the same inside.
+
 ## Status
 
-Phases 1–6 of the plan are done: skeleton, settings, week grid, task CRUD,
-drag & drop, live updates. Month view, polish and packaging follow.
+Phases 1–7 of the plan are done: skeleton, settings, week grid, task CRUD,
+drag & drop, live updates, four-week view. Polish and packaging follow.

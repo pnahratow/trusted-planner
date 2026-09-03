@@ -1,8 +1,8 @@
 {# A column is a day or a custom list — same markup, same behaviour, because a
    day is just a list that has a date. #}
-<section class="column{% if col.is_today %} is-today{% endif %}{% if col.is_outside %} is-outside{% endif %}{% if not col.is_day %} is-list{% endif %}"
+<section class="column is-{{ col.density }}{% if col.is_today %} is-today{% endif %}{% if not col.is_day %} is-list{% endif %}"
          id="col-{{ col.key }}" data-key="{{ col.key }}"
-         hx-get="/b/{{ board_id }}/col/{{ col.key }}"
+         hx-get="/b/{{ board_id }}/col/{{ col.key }}?density={{ col.density }}"
          hx-trigger="refresh-column"
          hx-swap="outerHTML">
   <header class="column-head">
@@ -17,6 +17,16 @@
       <li class="empty">Nothing yet</li>
     {% endfor %}
   </ul>
+
+  {% if col.hidden %}
+  {# The cell ran out of room. Open the day in full rather than shrinking rows
+     further — everything in the panel is the same column at full size. #}
+  <button type="button" class="more-link"
+          hx-get="/b/{{ board_id }}/day/{{ col.key }}"
+          hx-target="#day-panel" hx-swap="innerHTML">
+    +{{ col.hidden }} more
+  </button>
+  {% endif %}
 
   {# queue all: typing two tasks in quick succession must add both, rather than
      the second request cancelling the first in flight. #}

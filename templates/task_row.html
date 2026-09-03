@@ -15,7 +15,7 @@
 
   <button class="task-title" type="button"
           hx-get="/task/{{ task.id }}/edit"
-          hx-target="#task-{{ task.id }}" hx-swap="outerHTML"
+          hx-target="closest .task" hx-swap="outerHTML"
           title="{{ task.notes if task.notes else 'Click to edit' }}">
     {{ task.title }}
     {% if task.notes %}<span class="has-notes" aria-label="has notes">&#9998;</span>{% endif %}

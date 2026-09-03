@@ -18,6 +18,36 @@ use crate::calendar;
 use crate::models::{Task, User};
 use crate::queries;
 
+/// How much room a column has to render in.
+///
+/// The week grid gives a column the height of the screen; a month cell has room
+/// for a handful of rows and offers to open the rest. This is the *only* thing
+/// a column knows about which view it is in (D18) — the markup, and therefore
+/// every behaviour attached to it, is identical either way.
+pub const COMPACT: &str = "compact";
+pub const FULL: &str = "full";
+
+/// Rows a month cell shows before it starts counting the remainder.
+const MONTH_CELL_ROWS: usize = 4;
+
+fn limit_for(density: &str) -> Option<usize> {
+    (density == COMPACT).then_some(MONTH_CELL_ROWS)
+}
+
+/// Density is a property of the *column*, not of the page it appears on.
+///
+/// Custom lists sit in their own row with room to breathe in both views (D17),
+/// so only day columns follow the page. Deciding it here means a custom list
+/// re-fetched from the four-week grid — or mutated from it — comes back the
+/// right shape without every call site remembering the exception.
+pub fn density_for(key: ColumnKey, page: &str) -> &'static str {
+    if matches!(key, ColumnKey::Day(_)) && page == COMPACT {
+        COMPACT
+    } else {
+        FULL
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColumnKey {
     Day(NaiveDate),
@@ -90,10 +120,12 @@ pub struct ColumnView {
     pub subheading: String,
     pub is_day: bool,
     pub is_today: bool,
-    /// Dimmed in the month grid; always false in a week.
-    pub is_outside: bool,
     pub list_id: Option<i64>,
+    /// Carried into the markup so the column's own refresh URL round-trips it.
+    pub density: &'static str,
     pub tasks: Vec<TaskView>,
+    /// Tasks the cell had no room for. Always 0 where nothing is limited.
+    pub hidden: usize,
 }
 
 pub fn task_view(task: &Task, authors: &[User]) -> TaskView {
@@ -110,6 +142,11 @@ pub fn task_view(task: &Task, authors: &[User]) -> TaskView {
 }
 
 /// Builds one column. `tasks` is pre-filtered to this list.
+///
+/// A compact column shows a handful of rows and reports the rest as `hidden`,
+/// so the template can offer to open the day in full. Deciding that here keeps
+/// the templates free of slicing and arithmetic, and lets both grids share one
+/// partial unchanged.
 pub fn column_view(
     key: ColumnKey,
     list_id: Option<i64>,
@@ -117,16 +154,19 @@ pub fn column_view(
     subheading: String,
     tasks: &[Task],
     authors: &[User],
+    density: &'static str,
 ) -> ColumnView {
+    let shown = limit_for(density).map_or(tasks.len(), |n| n.min(tasks.len()));
     ColumnView {
         key: key.as_string(),
         heading,
         subheading,
         is_day: matches!(key, ColumnKey::Day(_)),
         is_today: matches!(key, ColumnKey::Day(d) if d == calendar::today()),
-        is_outside: false,
         list_id,
-        tasks: tasks.iter().map(|t| task_view(t, authors)).collect(),
+        density,
+        tasks: tasks[..shown].iter().map(|t| task_view(t, authors)).collect(),
+        hidden: tasks.len() - shown,
     }
 }
 
@@ -137,6 +177,7 @@ pub fn load_column(
     board_id: i64,
     key: ColumnKey,
     move_completed: bool,
+    density: &'static str,
 ) -> Result<ColumnView> {
     let authors = queries::users(conn).context("loading task authors")?;
     let list_id = key.resolve_for_read(conn, board_id)?;
@@ -158,5 +199,98 @@ pub fn load_column(
         ),
     };
 
-    Ok(column_view(key, list_id, heading, subheading, &tasks, &authors))
+    Ok(column_view(key, list_id, heading, subheading, &tasks, &authors, density))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn column_keys_round_trip() {
+        for raw in ["2026-09-03", "list-7"] {
+            let key = ColumnKey::parse(raw).expect("parses");
+            assert_eq!(key.as_string(), raw);
+        }
+    }
+
+    #[test]
+    fn a_key_that_is_neither_a_date_nor_a_list_is_rejected() {
+        for raw in ["", "nonsense", "list-", "list-abc", "2026-13-40", "2026-09"] {
+            assert!(ColumnKey::parse(raw).is_none(), "{raw} should not parse");
+        }
+    }
+
+    fn task(id: i64) -> Task {
+        Task {
+            id,
+            list_id: 1,
+            title: format!("task {id}"),
+            notes: String::new(),
+            done: false,
+            author_id: 1,
+            position: id,
+            version: 1,
+        }
+    }
+
+    fn build(count: i64, density: &'static str) -> ColumnView {
+        let tasks: Vec<Task> = (0..count).map(task).collect();
+        column_view(
+            ColumnKey::List(1),
+            Some(1),
+            "L".into(),
+            String::new(),
+            &tasks,
+            &[],
+            density,
+        )
+    }
+
+    #[test]
+    fn a_full_column_shows_everything() {
+        let col = build(9, FULL);
+        assert_eq!(col.tasks.len(), 9);
+        assert_eq!(col.hidden, 0);
+    }
+
+    #[test]
+    fn a_compact_cell_shows_the_first_few_and_counts_the_rest() {
+        let col = build(9, COMPACT);
+        assert_eq!(col.tasks.len(), MONTH_CELL_ROWS);
+        assert_eq!(col.hidden, 9 - MONTH_CELL_ROWS);
+        assert_eq!(col.tasks[0].title, "task 0", "the visible ones come first");
+    }
+
+    #[test]
+    fn a_cell_with_room_to_spare_hides_nothing() {
+        let col = build(2, COMPACT);
+        assert_eq!(col.tasks.len(), 2);
+        assert_eq!(col.hidden, 0, "must not underflow");
+    }
+
+    #[test]
+    fn an_empty_column_is_fine_at_either_density() {
+        for density in [FULL, COMPACT] {
+            let col = build(0, density);
+            assert_eq!(col.tasks.len(), 0);
+            assert_eq!(col.hidden, 0);
+        }
+    }
+
+    /// A custom list is never squeezed into a calendar cell, whichever grid it
+    /// is shown in (D17).
+    #[test]
+    fn custom_lists_are_full_density_on_every_page() {
+        for page in [FULL, COMPACT] {
+            assert_eq!(density_for(ColumnKey::List(1), page), FULL);
+        }
+    }
+
+    #[test]
+    fn day_columns_follow_the_page() {
+        let day = ColumnKey::parse("2026-09-03").unwrap();
+        assert_eq!(density_for(day, COMPACT), COMPACT);
+        assert_eq!(density_for(day, FULL), FULL);
+    }
 }

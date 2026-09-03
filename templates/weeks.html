@@ -1,17 +1,24 @@
 {% extends "layout.html" %}
 {% block title %}{{ board.name }} — {{ range_label }}{% endblock %}
-
 {% block topbar %}{% include "topbar.html" %}{% endblock %}
 
 {% block content %}
 {# Tells app.js which board to poll for changes, and from where. #}
 <div id="live" data-board="{{ board.id }}" data-seq="{{ change_seq }}" hidden></div>
 
-<div class="week-grid">
-  {% for col in days %}
+<div class="weeks-head" aria-hidden="true">
+  {% for name in weekday_names %}<span>{{ name }}</span>{% endfor %}
+</div>
+
+<div class="weeks-grid">
+  {% for col in cells %}
     {% include "column.html" %}
   {% endfor %}
 </div>
+
+{# A day opened from a cell's "+N more". Empty until something is opened, and
+   hidden by CSS while empty, so it needs no JavaScript to appear. #}
+<div id="day-panel" class="day-panel"></div>
 
 {% if lists %}
 <div class="lists-row">
@@ -19,8 +26,5 @@
     {% include "column.html" %}
   {% endfor %}
 </div>
-{% else %}
-<p class="hint">No custom lists on this board yet — add one in
-   <a href="/settings">settings</a>.</p>
 {% endif %}
 {% endblock %}

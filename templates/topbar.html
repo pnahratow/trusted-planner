@@ -1,0 +1,27 @@
+{# Shared by the week and month grids. Every link is built in Rust, so this
+   partial has no idea which view it is decorating. #}
+<form class="picker" method="post" action="/whoami">
+  <input type="hidden" name="next" value="{{ self_url }}">
+  <label class="sr-only" for="who">Identity</label>
+  <select id="who" name="user_id" onchange="this.form.submit()">
+    {% for u in users %}
+      <option value="{{ u.id }}" {% if u.id == me.id %}selected{% endif %}>{{ u.name }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<label class="sr-only" for="board">Board</label>
+<select id="board" class="picker-select"
+        onchange="location.href='/b/' + this.value + '{{ board_path }}'">
+  {% for b in boards %}
+    <option value="{{ b.id }}" {% if b.id == board.id %}selected{% endif %}>{{ b.name }}</option>
+  {% endfor %}
+</select>
+
+<nav class="weeknav">
+  <a class="navbtn" href="{{ prev_url }}" aria-label="Previous">&lsaquo;</a>
+  <a class="navbtn today-btn" href="{{ today_url }}">Today</a>
+  <a class="navbtn" href="{{ next_url }}" aria-label="Next">&rsaquo;</a>
+  <span class="range">{{ range_label }}</span>
+  <a class="navbtn switch" href="{{ switch_url }}">{{ switch_label }}</a>
+</nav>

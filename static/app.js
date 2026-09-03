@@ -67,13 +67,14 @@
   // or by pressing Escape. Cancelling swaps the plain row back over just that
   // row, so a second editor elsewhere in the same column is left alone.
   function cancelEditor(editor) {
-    var id = editor.dataset.taskId;
-    if (!id || editor.dataset.cancelling) return;
-    editor.dataset.cancelling = "1"; // a stray second click must not re-fire
-    window.htmx.ajax("GET", "/task/" + id + "/row", {
-      target: "#task-" + id,
-      swap: "outerHTML",
-    });
+    if (editor.dataset.cancelling) return; // a stray second click must not re-fire
+    var button = editor.querySelector("[data-cancel-edit]");
+    if (!button) return;
+    editor.dataset.cancelling = "1";
+    // Click the editor's own Cancel button rather than re-issuing its request
+    // here: the URL and the target stay declared in the markup, in one place,
+    // and clicking away can never drift from what the button does.
+    button.click();
   }
 
   function cancelEditorsOutside(target) {
@@ -83,7 +84,19 @@
     }
   }
 
+  // The day panel opened from a month cell's "+N more". Emptying the container
+  // hides it, because it is styled `:empty { display: none }` — no state to
+  // keep and nothing to get out of step with.
+  function closeDayPanel() {
+    var panel = document.getElementById("day-panel");
+    if (panel) panel.innerHTML = "";
+  }
+
   document.addEventListener("click", function (evt) {
+    if (evt.target.closest && evt.target.closest("[data-close-panel]")) {
+      closeDayPanel();
+      return;
+    }
     // Opening another editor is handled by that row's own request; cancelling
     // this one alongside it is exactly the intent.
     cancelEditorsOutside(evt.target);
@@ -92,8 +105,12 @@
   document.addEventListener("keydown", function (evt) {
     if (evt.key !== "Escape") return;
     var editor = evt.target.closest ? evt.target.closest(".task-editing") : null;
-    if (editor) cancelEditor(editor);
-    else cancelEditorsOutside(document.body);
+    if (editor) {
+      cancelEditor(editor);
+      return;
+    }
+    cancelEditorsOutside(document.body);
+    closeDayPanel();
   });
 
   // ------------------------------------------------------------ drag & drop

@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::error::AppResult;
 use crate::routes::board::render_column;
-use crate::routes::{current_user, move_completed, render};
+use crate::routes::{current_user, move_completed, render, Density};
 use crate::views::{self, ColumnKey};
 use crate::{queries, AppState};
 
@@ -65,6 +65,7 @@ struct CreateForm {
 async fn create(
     State(state): State<AppState>,
     jar: axum_extra::extract::CookieJar,
+    Density(density): Density,
     Path(board_id): Path<i64>,
     Form(f): Form<CreateForm>,
 ) -> AppResult {
@@ -92,7 +93,7 @@ async fn create(
         state.changes.record(board_id, &key);
     }
 
-    render_column(&state, board_id, key, move_completed(&state)?)
+    render_column(&state, board_id, key, move_completed(&state)?, density)
 }
 
 /// The three single-task mutations differ only in the statement they run, so
@@ -101,6 +102,7 @@ fn mutate_in_place(
     state: &AppState,
     id: i64,
     what: &'static str,
+    density: &str,
     run: impl FnOnce(&rusqlite::Connection) -> rusqlite::Result<()>,
 ) -> AppResult {
     let Some((board_id, key)) = column_of(state, id)? else {
@@ -111,16 +113,24 @@ fn mutate_in_place(
         .with(run)
         .with_context(|| format!("{what} task {id}"))?;
     state.changes.record(board_id, &key);
-    render_column(state, board_id, key, move_completed(state)?)
+    render_column(state, board_id, key, move_completed(state)?, density)
 }
 
-async fn toggle(State(state): State<AppState>, Path(id): Path<i64>) -> AppResult {
-    mutate_in_place(&state, id, "toggling", move |conn| {
+async fn toggle(
+    State(state): State<AppState>,
+    Density(density): Density,
+    Path(id): Path<i64>,
+) -> AppResult {
+    mutate_in_place(&state, id, "toggling", density, move |conn| {
         queries::toggle_task(conn, id)
     })
 }
 
-async fn delete(State(state): State<AppState>, Path(id): Path<i64>) -> AppResult {
+async fn delete(
+    State(state): State<AppState>,
+    Density(density): Density,
+    Path(id): Path<i64>,
+) -> AppResult {
     let Some((board_id, key)) = column_of(&state, id)? else {
         return Ok(bad("no such task"));
     };
@@ -130,7 +140,7 @@ async fn delete(State(state): State<AppState>, Path(id): Path<i64>) -> AppResult
         .transaction(|tx| queries::delete_task(tx, id))
         .with_context(|| format!("deleting task {id}"))?;
     state.changes.record(board_id, &key);
-    render_column(&state, board_id, key, move_completed(&state)?)
+    render_column(&state, board_id, key, move_completed(&state)?, density)
 }
 
 /// Swaps the row for an editor. The version rendered here is the one the save
@@ -235,43 +245,47 @@ async fn update(
     let Some(current) = current else {
         return Ok(bad("no such task"));
     };
-    let Some((board_id, key)) = column_of(&state, id)? else {
-        return Ok(bad("no such task"));
-    };
-
-    if accepted {
-        state.changes.record(board_id, &key);
-        return render_column(&state, board_id, key, move_completed(&state)?);
-    }
-    // A refused write changed nothing, so there is nothing to tell anyone.
 
     let mut view = views::task_view(&current, &authors);
+    let show_colour = state
+        .db
+        .with(|conn| -> anyhow::Result<_> {
+            let Some(list) = queries::list(conn, current.list_id)? else {
+                return Ok(false);
+            };
+            Ok(queries::board_member_count(conn, list.board_id)? > 1)
+        })
+        .with_context(|| format!("loading the board of task {id}"))?;
+
+    if accepted {
+        if let Some((board_id, key)) = column_of(&state, id)? {
+            state.changes.record(board_id, &key);
+        }
+        // Editing a title or note cannot reorder the column, so the row is the
+        // whole answer.
+        return render(
+            &state,
+            "task_row.html",
+            minijinja::context! { task => view, show_colour => show_colour },
+        );
+    }
+
     let server_title = view.title.clone();
     let server_notes = view.notes.clone();
     // Put their draft back in the fields; show the server's value alongside.
     view.title = title;
     view.notes = f.notes;
 
-    // The form posts at the column, but a refusal must replace the editor, not
-    // the column around it — so retarget the swap onto the row itself.
-    let mut resp = render(
+    render(
         &state,
         "task_edit.html",
         minijinja::context! {
             task => view,
-            board_id => board_id,
-            col_key => key.as_string(),
             conflict => true,
             server_title => server_title,
             server_notes => server_notes,
         },
-    )?;
-    let headers = resp.headers_mut();
-    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("#task-{id}")) {
-        headers.insert("HX-Retarget", v);
-    }
-    headers.insert("HX-Reswap", axum::http::HeaderValue::from_static("outerHTML"));
-    Ok(resp)
+    )
 }
 
 #[derive(Deserialize)]
@@ -287,6 +301,7 @@ struct MoveForm {
 
 async fn move_task(
     State(state): State<AppState>,
+    Density(density): Density,
     Path(id): Path<i64>,
     Form(f): Form<MoveForm>,
 ) -> AppResult {
@@ -319,7 +334,7 @@ async fn move_task(
 
     // The source column changed too when the task left it; the client refetches
     // it via the out-of-band header rather than us guessing at swap targets.
-    let mut resp = render_column(&state, board_id, dest, move_completed(&state)?)?;
+    let mut resp = render_column(&state, board_id, dest, move_completed(&state)?, density)?;
     if origin_col != dest
         && let Ok(v) = axum::http::HeaderValue::from_str(&origin_col.as_string())
     {

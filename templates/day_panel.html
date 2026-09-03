@@ -1,0 +1,12 @@
+{# One day in full, over the month grid. The column inside is the ordinary
+   column partial at full density, so adding, editing and dragging behave
+   exactly as they do in the week view. #}
+<div class="panel-backdrop" data-close-panel></div>
+<div class="panel-card" role="dialog" aria-label="{{ day_label }}">
+  <header class="panel-head">
+    <h2>{{ day_label }}</h2>
+    <button type="button" class="icon-btn panel-close" data-close-panel
+            aria-label="Close">&times;</button>
+  </header>
+  {% include "column.html" %}
+</div>

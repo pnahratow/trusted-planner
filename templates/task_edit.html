@@ -10,9 +10,13 @@
   </p>
   {% endif %}
 
+  {# Saving swaps this editor back to a row. A title or note edit cannot change
+     the order of the column, so answering with the row is both smaller and
+     immune to the same task appearing twice on screen (a cell and the day
+     panel over it). #}
   <form class="task-edit-form"
         hx-post="/task/{{ task.id }}"
-        hx-target="closest .column" hx-swap="outerHTML">
+        hx-target="closest .task" hx-swap="outerHTML">
     <input type="hidden" name="version" value="{{ task.version }}">
     <input class="edit-title" type="text" name="title" value="{{ task.title }}"
            autocomplete="off" required autofocus>
@@ -22,7 +26,7 @@
       <button type="submit" class="btn-primary">Save</button>
       <button type="button" class="btn-plain" data-cancel-edit
               hx-get="/task/{{ task.id }}/row"
-              hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Cancel</button>
+              hx-target="closest .task" hx-swap="outerHTML">Cancel</button>
     </div>
   </form>
 </li>

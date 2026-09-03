@@ -10,27 +10,20 @@ pub fn monday_of(date: NaiveDate) -> NaiveDate {
 
 /// The 7 dates of the week starting at `monday`.
 pub fn week_of(monday: NaiveDate) -> Vec<NaiveDate> {
-    (0..7).map(|i| monday + Duration::days(i)).collect()
+    weeks_from(monday, 1)
 }
 
-/// The padded calendar grid for a month: whole weeks, Monday-first, including
-/// the leading and trailing days of the adjacent months. 35 or 42 dates.
-#[allow(dead_code)] // wired up by the month view in phase 7; already under test
-pub fn month_of(year: i32, month: u32) -> Option<Vec<NaiveDate>> {
-    let first = NaiveDate::from_ymd_opt(year, month, 1)?;
-    let start = monday_of(first);
+/// How many weeks the multi-week grid shows.
+///
+/// Fixed at four rather than "a calendar month" on purpose: a month grid is 35
+/// cells some months and 42 others, so the layout reflows as you page through
+/// it and rows change height. Four weeks is always 4x7, every cell the same
+/// size, every row aligned.
+pub const VIEW_WEEKS: i64 = 4;
 
-    // Last day of the month, then round its week up to the following Monday.
-    let next_month = if month == 12 {
-        NaiveDate::from_ymd_opt(year + 1, 1, 1)?
-    } else {
-        NaiveDate::from_ymd_opt(year, month + 1, 1)?
-    };
-    let last = next_month - Duration::days(1);
-    let end = monday_of(last) + Duration::days(7);
-
-    let len = (end - start).num_days();
-    Some((0..len).map(|i| start + Duration::days(i)).collect())
+/// `weeks` consecutive weeks of dates starting at `monday`.
+pub fn weeks_from(monday: NaiveDate, weeks: i64) -> Vec<NaiveDate> {
+    (0..weeks * 7).map(|i| monday + Duration::days(i)).collect()
 }
 
 /// `YYYY-MM-DD`, the only date format that crosses the wire or hits the database.
@@ -84,64 +77,72 @@ mod tests {
         assert_eq!(week[6], d("2027-01-03"));
     }
 
+    /// The whole reason for four weeks instead of a calendar month: a month
+    /// grid is 35 cells some months and 42 others, so rows change height as you
+    /// page through it. This one never does.
     #[test]
-    fn month_grid_is_whole_weeks_starting_monday() {
-        let grid = month_of(2026, 9).unwrap();
-        assert_eq!(grid.len() % 7, 0);
-        assert_eq!(grid[0].weekday(), Weekday::Mon);
-        assert!(grid.contains(&d("2026-09-01")));
-        assert!(grid.contains(&d("2026-09-30")));
-    }
-
-    #[test]
-    fn month_starting_sunday_needs_leading_padding() {
-        // 2026-11-01 is a Sunday, so the grid opens on 2026-10-26.
-        let grid = month_of(2026, 11).unwrap();
-        assert_eq!(grid[0], d("2026-10-26"));
-        assert!(grid.contains(&d("2026-11-30")));
-    }
-
-    #[test]
-    fn february_of_a_common_year() {
-        // 2026 is not a leap year: the month must end at the 28th, and the
-        // grid must still pad out to whole weeks.
-        let grid = month_of(2026, 2).unwrap();
-        assert!(grid.contains(&d("2026-02-28")));
-        assert!(grid.contains(&d("2026-03-01")));
-        assert_eq!(grid.iter().filter(|x| x.month() == 2).count(), 28);
-        assert_eq!(grid.len() % 7, 0);
-    }
-
-    #[test]
-    fn february_of_a_leap_year_has_29_days() {
-        let grid = month_of(2028, 2).unwrap();
-        assert!(grid.contains(&d("2028-02-29")));
-        assert_eq!(grid.iter().filter(|x| x.month() == 2).count(), 29);
-    }
-
-    #[test]
-    fn month_grid_covers_every_day_of_the_month_exactly_once() {
-        for (y, m) in [(2026, 1), (2026, 2), (2026, 8), (2026, 12), (2028, 2)] {
-            let grid = month_of(y, m).unwrap();
-            let own: Vec<_> = grid.iter().filter(|x| x.year() == y && x.month() == m).collect();
-            assert_eq!(own.first().unwrap().day(), 1, "{y}-{m} misses the 1st");
-            let mut sorted = own.clone();
-            sorted.sort();
-            assert_eq!(own, sorted, "{y}-{m} out of order");
+    fn a_four_week_grid_is_always_the_same_shape() {
+        for start in ["2026-08-31", "2026-11-30", "2027-01-25", "2028-02-28"] {
+            let grid = weeks_from(d(start), VIEW_WEEKS);
+            assert_eq!(grid.len(), 28, "{start} should give 4 x 7");
+            assert_eq!(grid[0], d(start));
+            assert_eq!(grid[0].weekday(), Weekday::Mon);
+            assert_eq!(grid[27], d(start) + Duration::days(27));
         }
     }
 
     #[test]
-    fn some_months_need_six_rows() {
-        // 2026-08-01 is a Saturday in a 31-day month: 42 cells, not 35.
-        assert_eq!(month_of(2026, 8).unwrap().len(), 42);
-        assert_eq!(month_of(2026, 9).unwrap().len(), 35);
+    fn a_four_week_grid_is_contiguous_and_crosses_years() {
+        let grid = weeks_from(d("2026-12-28"), VIEW_WEEKS);
+        assert_eq!(grid.len(), 28);
+        assert_eq!(grid[6], d("2027-01-03"), "runs straight through new year");
+        for pair in grid.windows(2) {
+            assert_eq!(pair[1] - pair[0], Duration::days(1), "no gaps");
+        }
     }
 
     #[test]
-    fn december_rolls_into_the_next_year() {
-        let grid = month_of(2026, 12).unwrap();
-        assert!(grid.contains(&d("2026-12-31")));
-        assert_eq!(grid.len() % 7, 0);
+    fn a_four_week_grid_covers_a_leap_day() {
+        let grid = weeks_from(d("2028-02-07"), VIEW_WEEKS);
+        assert!(grid.contains(&d("2028-02-29")));
+    }
+
+    #[test]
+    fn every_row_of_the_grid_starts_on_a_monday() {
+        let grid = weeks_from(d("2026-08-31"), VIEW_WEEKS);
+        for row in 0..usize::try_from(VIEW_WEEKS).unwrap() {
+            assert_eq!(grid[row * 7].weekday(), Weekday::Mon);
+            assert_eq!(grid[row * 7 + 6].weekday(), Weekday::Sun);
+        }
+    }
+
+    #[test]
+    fn week_of_is_the_first_week_of_the_grid() {
+        let monday = d("2026-08-31");
+        assert_eq!(week_of(monday), weeks_from(monday, 1));
+        assert_eq!(week_of(monday), weeks_from(monday, VIEW_WEEKS)[..7]);
+    }
+
+    #[test]
+    fn dates_round_trip_through_their_url_form() {
+        for raw in ["2026-01-01", "2026-09-03", "2028-02-29"] {
+            assert_eq!(fmt(parse(raw).unwrap()), raw);
+        }
+    }
+
+    #[test]
+    fn nonsense_dates_are_rejected() {
+        for raw in ["", "2026-13-01", "2026-02-30", "2028-02-30", "today", "2026-09"] {
+            assert!(parse(raw).is_none(), "{raw} should not parse");
+        }
+    }
+
+    /// Unpadded numbers are accepted, which is harmless: a hand-typed URL still
+    /// works and `fmt` only ever emits the padded form, so nothing downstream
+    /// sees two spellings of the same day.
+    #[test]
+    fn an_unpadded_date_is_accepted_and_normalised() {
+        assert_eq!(parse("2026-9-3"), parse("2026-09-03"));
+        assert_eq!(fmt(parse("2026-9-3").unwrap()), "2026-09-03");
     }
 }
