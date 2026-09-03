@@ -400,6 +400,43 @@ pub fn delete_task(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Task ids in a list, in stored order, optionally omitting one.
+pub fn task_ids_in_list(conn: &Connection, list_id: i64, exclude: Option<i64>) -> Result<Vec<i64>> {
+    let skip = exclude.unwrap_or(-1);
+    conn.prepare(
+        "SELECT id FROM tasks
+         WHERE list_id = ?1 AND deleted_at IS NULL AND id != ?2
+         ORDER BY position, id",
+    )?
+    .query_map(params![list_id, skip], |r| r.get(0))?
+    .collect()
+}
+
+/// Translates the drag intent "put `moved` immediately after `after`" into the
+/// index `move_task` expects.
+///
+/// A drop cannot send a raw index: with completed tasks sunk to the bottom the
+/// order on screen is not the order in the table, so index 2 on screen may be
+/// any row underneath. Naming the neighbour is unambiguous either way. `None`
+/// means the head of the list.
+pub fn position_after(
+    conn: &Connection,
+    dest_list: i64,
+    moved: i64,
+    after: Option<i64>,
+) -> Result<i64> {
+    let Some(after) = after else {
+        return Ok(0);
+    };
+    let ids = task_ids_in_list(conn, dest_list, Some(moved))?;
+    Ok(match ids.iter().position(|id| *id == after) {
+        Some(i) => i as i64 + 1,
+        // The neighbour is gone (deleted or moved by someone else); appending
+        // is closer to the intent than silently landing at the top.
+        None => ids.len() as i64,
+    })
+}
+
 /// Moves a task to `position` in `dest_list`, renumbering both the list it left
 /// and the list it joined so positions stay dense integers. Call inside a
 /// transaction — the caller owns atomicity.
@@ -583,6 +620,103 @@ mod tests {
         move_task(&conn, ids[2], a, 0).unwrap();
         assert_eq!(titles(&conn, a), ["three", "two"]);
         assert_eq!(positions(&conn, a), [0, 1]);
+    }
+
+    // ------------------------------------------- drop intent -> position
+
+    #[test]
+    fn dropping_at_the_head_means_position_zero() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three"]);
+        assert_eq!(position_after(&conn, a, ids[2], None).unwrap(), 0);
+    }
+
+    #[test]
+    fn dropping_after_a_neighbour_lands_just_past_it() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three", "four"]);
+
+        // Move "four" to sit after "one". Excluding the moved task the list is
+        // [one, two, three], so "one" is index 0 and the target is 1.
+        let pos = position_after(&conn, a, ids[3], Some(ids[0])).unwrap();
+        assert_eq!(pos, 1);
+        move_task(&conn, ids[3], a, pos).unwrap();
+        assert_eq!(titles(&conn, a), ["one", "four", "two", "three"]);
+    }
+
+    #[test]
+    fn the_moved_task_is_excluded_when_locating_its_neighbour() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three"]);
+
+        // Dragging "one" (index 0) to sit after "two". With "one" removed,
+        // "two" is index 0, so the target is 1 — not 2, which is what using
+        // the un-filtered list would have given.
+        let pos = position_after(&conn, a, ids[0], Some(ids[1])).unwrap();
+        assert_eq!(pos, 1);
+        move_task(&conn, ids[0], a, pos).unwrap();
+        assert_eq!(titles(&conn, a), ["two", "one", "three"]);
+    }
+
+    #[test]
+    fn dropping_after_the_last_task_appends() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three"]);
+        let pos = position_after(&conn, a, ids[0], Some(ids[2])).unwrap();
+        move_task(&conn, ids[0], a, pos).unwrap();
+        assert_eq!(titles(&conn, a), ["two", "three", "one"]);
+        assert_eq!(positions(&conn, a), [0, 1, 2]);
+    }
+
+    #[test]
+    fn dropping_into_another_list_after_a_neighbour() {
+        let (conn, author, a, b) = fixture();
+        let moved = seed(&conn, a, author, &["moved"])[0];
+        let there = seed(&conn, b, author, &["x", "y", "z"]);
+
+        let pos = position_after(&conn, b, moved, Some(there[1])).unwrap();
+        assert_eq!(pos, 2);
+        move_task(&conn, moved, b, pos).unwrap();
+        assert_eq!(titles(&conn, b), ["x", "y", "moved", "z"]);
+        assert!(titles(&conn, a).is_empty());
+    }
+
+    #[test]
+    fn dropping_into_an_empty_list_is_position_zero() {
+        let (conn, author, a, b) = fixture();
+        let moved = seed(&conn, a, author, &["moved"])[0];
+        assert_eq!(position_after(&conn, b, moved, None).unwrap(), 0);
+    }
+
+    /// Someone else deleted or moved the neighbour between render and drop.
+    #[test]
+    fn a_vanished_neighbour_appends_rather_than_jumping_to_the_top() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three"]);
+        delete_task(&conn, ids[1]).unwrap();
+
+        let pos = position_after(&conn, a, ids[0], Some(ids[1])).unwrap();
+        assert_eq!(pos, 1, "appended to the two survivors, not sent to the head");
+    }
+
+    #[test]
+    fn a_drop_is_unambiguous_even_when_done_tasks_are_sunk() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three"]);
+        toggle_task(&conn, ids[0]).unwrap(); // "one" is done, so it displays last
+
+        // On screen the order is [two, three, one]. Dropping "three" after
+        // "two" must mean the row called "two", regardless of where either
+        // sits in the table.
+        let pos = position_after(&conn, a, ids[2], Some(ids[1])).unwrap();
+        move_task(&conn, ids[2], a, pos).unwrap();
+
+        let shown: Vec<String> = tasks_for_list(&conn, a, true)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.title)
+            .collect();
+        assert_eq!(shown, ["two", "three", "one"]);
     }
 
     // ------------------------------------------------------------ CAS

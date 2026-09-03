@@ -40,5 +40,5 @@ edit — plus the calendar date-range maths.
 
 ## Status
 
-Phases 1–4 of the plan are done: skeleton, settings, week grid, task CRUD.
-Drag & drop, live updates, month view, polish and packaging follow.
+Phases 1–5 of the plan are done: skeleton, settings, week grid, task CRUD,
+drag & drop. Live updates, month view, polish and packaging follow.

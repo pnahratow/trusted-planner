@@ -236,7 +236,11 @@ async fn update(
 struct MoveForm {
     /// Destination column, addressed the same way everywhere.
     key: String,
-    position: i64,
+    /// The task this one was dropped after; absent means the head of the list.
+    /// Naming the neighbour rather than sending an index keeps the drop
+    /// unambiguous when the display order differs from the stored order.
+    #[serde(default)]
+    after: Option<i64>,
 }
 
 /// Phase 5 drives this from SortableJS; it is server-authoritative already, so
@@ -260,7 +264,8 @@ async fn move_task(
         let Some(dest_list) = dest.resolve_for_write(tx, board_id)? else {
             return Ok(false);
         };
-        queries::move_task(tx, id, dest_list, f.position)?;
+        let position = queries::position_after(tx, dest_list, id, f.after)?;
+        queries::move_task(tx, id, dest_list, position)?;
         Ok(true)
     });
     if let Err(e) = moved {

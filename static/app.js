@@ -61,6 +61,63 @@
     }
   });
 
+  // ------------------------------------------------------------ drag & drop
+  //
+  // Sortable moves the row optimistically so the drag feels immediate; the
+  // server then re-renders the column and its answer wins. Nothing here tries
+  // to keep a local model in sync.
+  function initSortable(root) {
+    if (!window.Sortable) return;
+    var lists = (root || document).querySelectorAll(".tasks");
+    for (var i = 0; i < lists.length; i++) {
+      var ul = lists[i];
+      if (window.Sortable.get(ul)) continue; // already wired
+      window.Sortable.create(ul, {
+        group: "tasks",
+        draggable: ".task",
+        filter: ".empty, .task-editing", // placeholders and open editors don't drag
+        animation: 120,
+        ghostClass: "drag-ghost",
+        chosenClass: "drag-chosen",
+        onEnd: onDrop,
+      });
+    }
+  }
+
+  function onDrop(evt) {
+    var item = evt.item;
+    if (evt.from === evt.to && evt.oldIndex === evt.newIndex) return; // no-op
+
+    var column = evt.to.closest(".column");
+    if (!column) return;
+    var key = column.dataset.key;
+    var id = item.dataset.taskId;
+    if (!key || !id) return;
+
+    // Name the neighbour rather than an index: with completed tasks sunk to
+    // the bottom, the position on screen is not the position in the table.
+    var prev = item.previousElementSibling;
+    while (prev && !prev.classList.contains("task")) {
+      prev = prev.previousElementSibling;
+    }
+
+    var values = { key: key };
+    if (prev && prev.dataset.taskId) values.after = prev.dataset.taskId;
+
+    window.htmx.ajax("POST", "/task/" + id + "/move", {
+      target: "#col-" + key,
+      swap: "outerHTML",
+      values: values,
+    });
+  }
+
+  initSortable(document);
+  body.addEventListener("htmx:afterSwap", function (evt) {
+    initSortable(evt.target && evt.target.querySelectorAll ? evt.target : document);
+    // A swapped-in column is a new node, so re-scan the document as well.
+    initSortable(document);
+  });
+
   body.addEventListener("htmx:afterRequest", function (evt) {
     submittedKey = null;
 

@@ -258,3 +258,20 @@ textarea { resize: vertical; width: 100%; }
   position: absolute; width: 1px; height: 1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
+
+/* --------------------------------------------------------- drag and drop */
+
+.task { cursor: grab; }
+.task:active { cursor: grabbing; }
+.task-title, .check, .icon-btn { cursor: pointer; }
+
+/* The gap the row will land in. */
+.drag-ghost {
+  opacity: 0.4;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 6px;
+}
+.drag-chosen { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* Give an empty column a real drop target rather than a one-line strip. */
+.tasks { min-height: 42px; }
