@@ -16,6 +16,47 @@ fn now() -> String {
 /// migration of shape — only a new key.
 pub const MOVE_COMPLETED: &str = "move_completed_to_bottom";
 
+/// What becomes of an undone task once its day has gone by (D23).
+pub const OVERDUE_ACTION: &str = "overdue_action";
+
+/// Leave it on the day it was written for.
+pub const OVERDUE_LEAVE: &str = "leave";
+/// Bring it forward to today, and again each day it stays undone.
+pub const OVERDUE_TODAY: &str = "today";
+/// Move it off the calendar into a list, where it stops chasing you.
+pub const OVERDUE_LIST: &str = "list";
+
+/// Remembers which list a board sweeps overdue tasks into. Stored per board
+/// because lists belong to boards, even though the *choice* of what to do is
+/// app-wide.
+fn overdue_list_key(board_id: i64) -> String {
+    format!("overdue_list:{board_id}")
+}
+
+/// The name a swept-into list is created with. Renaming it later is fine — the
+/// board remembers the list by id, not by name.
+const OVERDUE_LIST_NAME: &str = "Unfinished";
+
+pub fn get_setting(conn: &Connection, key: &str, default: &str) -> Result<String> {
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(raw.unwrap_or_else(|| default.to_owned()))
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
 pub fn get_flag(conn: &Connection, key: &str, default: bool) -> Result<bool> {
     let raw: Option<String> = conn
         .query_row(
@@ -265,6 +306,86 @@ pub fn delete_list(conn: &Connection, id: i64) -> Result<()> {
         params![id, now()],
     )?;
     Ok(())
+}
+
+// -------------------------------------------------------------- overdue
+
+/// The board's list for swept-up tasks, created the first time it is needed.
+///
+/// Tracked by id, so renaming it keeps working; if it has been deleted, a fresh
+/// one is made rather than resurrecting a tombstone.
+pub fn ensure_overdue_list(conn: &Connection, board_id: i64) -> Result<i64> {
+    let key = overdue_list_key(board_id);
+    if let Ok(id) = get_setting(conn, &key, "")?.parse::<i64>()
+        && let Some(l) = list(conn, id)?
+        && l.board_id == board_id
+        && l.date.is_none()
+    {
+        return Ok(id);
+    }
+    let id = create_custom_list(conn, board_id, OVERDUE_LIST_NAME)?;
+    set_setting(conn, &key, &id.to_string())?;
+    Ok(id)
+}
+
+/// Undone tasks sitting on days that have already gone by, oldest first.
+pub fn overdue_tasks(conn: &Connection, board_id: i64, today: &str) -> Result<Vec<Task>> {
+    let sql = format!(
+        "SELECT {} FROM tasks t
+         JOIN lists l ON l.id = t.list_id
+         WHERE l.board_id = ?1 AND l.deleted_at IS NULL
+           AND l.date IS NOT NULL AND l.date < ?2
+           AND t.deleted_at IS NULL AND t.done = 0
+         ORDER BY l.date, t.position",
+        TASK_COLS
+            .split(", ")
+            .map(|c| format!("t.{c}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    conn.prepare(&sql)?
+        .query_map(params![board_id, today], map_task)?
+        .collect()
+}
+
+/// Applies the overdue rule to a board. Returns the lists that changed, so the
+/// caller can tell other browsers which columns to re-fetch.
+///
+/// Idempotent by construction: a task moved to today is no longer in the past,
+/// and one moved into a list has no date at all, so neither is picked up again
+/// by the same sweep. Call inside a transaction.
+pub fn sweep_overdue(
+    conn: &Connection,
+    board_id: i64,
+    today: &str,
+    action: &str,
+) -> Result<Vec<i64>> {
+    if action != OVERDUE_TODAY && action != OVERDUE_LIST {
+        return Ok(Vec::new());
+    }
+    let stale = overdue_tasks(conn, board_id, today)?;
+    if stale.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let dest = if action == OVERDUE_TODAY {
+        ensure_day_list(conn, board_id, today)?
+    } else {
+        ensure_overdue_list(conn, board_id)?
+    };
+
+    let mut touched = vec![dest];
+    for task in stale {
+        if task.list_id == dest {
+            continue;
+        }
+        if !touched.contains(&task.list_id) {
+            touched.push(task.list_id);
+        }
+        // Append, keeping the oldest at the top of the run.
+        move_task(conn, task.id, dest, i64::MAX)?;
+    }
+    Ok(touched)
 }
 
 // ---------------------------------------------------------------- tasks
@@ -718,6 +839,181 @@ mod tests {
 
         // the fixture's own list is still intact and queryable
         assert!(tasks_for_list(&conn, list_a, true).unwrap().is_empty());
+    }
+
+    // ------------------------------------------------------- overdue
+
+    const TODAY: &str = "2026-09-04";
+
+    /// Two undone tasks on past days, one done task on a past day, and one on
+    /// today. Returns their ids in that order.
+    fn overdue_fixture(conn: &Connection, board: i64, author: i64) -> [i64; 4] {
+        let mon = ensure_day_list(conn, board, "2026-09-01").unwrap();
+        let tue = ensure_day_list(conn, board, "2026-09-02").unwrap();
+        let today = ensure_day_list(conn, board, TODAY).unwrap();
+        let a = create_task(conn, mon, "monday leftover", author).unwrap();
+        let b = create_task(conn, tue, "tuesday leftover", author).unwrap();
+        let done = create_task(conn, tue, "already done", author).unwrap();
+        toggle_task(conn, done).unwrap();
+        let c = create_task(conn, today, "for today", author).unwrap();
+        [a, b, done, c]
+    }
+
+    #[test]
+    fn overdue_finds_only_undone_tasks_in_the_past() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        overdue_fixture(&conn, board, author);
+
+        let stale = overdue_tasks(&conn, board, TODAY).unwrap();
+        let titles: Vec<_> = stale.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["monday leftover", "tuesday leftover"],
+            "today is not overdue, and a ticked task is not chasing anyone"
+        );
+    }
+
+    #[test]
+    fn leaving_them_alone_moves_nothing() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let ids = overdue_fixture(&conn, board, author);
+
+        let touched = sweep_overdue(&conn, board, TODAY, OVERDUE_LEAVE).unwrap();
+        assert_eq!(touched, Vec::<i64>::new());
+        assert_eq!(overdue_tasks(&conn, board, TODAY).unwrap().len(), 2);
+        assert!(task(&conn, ids[0]).unwrap().is_some());
+    }
+
+    #[test]
+    fn moving_to_today_empties_the_past() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        overdue_fixture(&conn, board, author);
+
+        sweep_overdue(&conn, board, TODAY, OVERDUE_TODAY).unwrap();
+        assert_eq!(overdue_tasks(&conn, board, TODAY).unwrap().len(), 0);
+
+        let today = ensure_day_list(&conn, board, TODAY).unwrap();
+        let titles: Vec<String> = tasks_for_list(&conn, today, false)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.title)
+            .collect();
+        assert_eq!(
+            titles,
+            ["for today", "monday leftover", "tuesday leftover"],
+            "appended in date order, behind what was already planned"
+        );
+        assert_eq!(positions(&conn, today), [0, 1, 2]);
+    }
+
+    #[test]
+    fn moving_to_a_list_takes_them_off_the_calendar() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        overdue_fixture(&conn, board, author);
+
+        sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap();
+        assert_eq!(overdue_tasks(&conn, board, TODAY).unwrap().len(), 0);
+
+        let dest = ensure_overdue_list(&conn, board).unwrap();
+        let titles: Vec<String> = tasks_for_list(&conn, dest, false)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.title)
+            .collect();
+        assert_eq!(titles, ["monday leftover", "tuesday leftover"]);
+        assert!(list(&conn, dest).unwrap().unwrap().date.is_none(), "off the calendar");
+    }
+
+    /// The sweep runs on every page load, so running it twice must be the same
+    /// as running it once.
+    #[test]
+    fn sweeping_twice_changes_nothing_the_second_time() {
+        for action in [OVERDUE_TODAY, OVERDUE_LIST] {
+            let (conn, author, _, _) = fixture();
+            let board = create_board(&conn, "B").unwrap();
+            overdue_fixture(&conn, board, author);
+
+            sweep_overdue(&conn, board, TODAY, action).unwrap();
+            let second = sweep_overdue(&conn, board, TODAY, action).unwrap();
+            assert_eq!(second, Vec::<i64>::new(), "{action} was not idempotent");
+        }
+    }
+
+    #[test]
+    fn a_ticked_task_is_left_where_it_was() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let ids = overdue_fixture(&conn, board, author);
+
+        sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap();
+        let done = task(&conn, ids[2]).unwrap().unwrap();
+        let its_list = list(&conn, done.list_id).unwrap().unwrap();
+        assert_eq!(its_list.date.as_deref(), Some("2026-09-02"), "history stays put");
+    }
+
+    #[test]
+    fn the_sweep_stops_at_the_board_it_was_asked_about() {
+        let (conn, author, _, _) = fixture();
+        let mine = create_board(&conn, "Mine").unwrap();
+        let theirs = create_board(&conn, "Theirs").unwrap();
+        overdue_fixture(&conn, mine, author);
+        overdue_fixture(&conn, theirs, author);
+
+        sweep_overdue(&conn, mine, TODAY, OVERDUE_LIST).unwrap();
+        assert!(overdue_tasks(&conn, mine, TODAY).unwrap().is_empty());
+        assert_eq!(
+            overdue_tasks(&conn, theirs, TODAY).unwrap().len(),
+            2,
+            "another board's tasks are not this board's business"
+        );
+    }
+
+    #[test]
+    fn each_board_gets_its_own_unfinished_list_once() {
+        let (conn, _, _, _) = fixture();
+        let one = create_board(&conn, "One").unwrap();
+        let two = create_board(&conn, "Two").unwrap();
+
+        let a = ensure_overdue_list(&conn, one).unwrap();
+        assert_eq!(a, ensure_overdue_list(&conn, one).unwrap(), "reused, not remade");
+        assert_ne!(a, ensure_overdue_list(&conn, two).unwrap(), "one per board");
+        assert_eq!(custom_lists(&conn, one).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn renaming_the_list_keeps_it_as_the_target() {
+        let (conn, _, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let id = ensure_overdue_list(&conn, board).unwrap();
+        rename_list(&conn, id, "Backlog").unwrap();
+        assert_eq!(ensure_overdue_list(&conn, board).unwrap(), id, "tracked by id");
+    }
+
+    #[test]
+    fn deleting_the_list_makes_a_fresh_one() {
+        let (conn, _, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let first = ensure_overdue_list(&conn, board).unwrap();
+        delete_list(&conn, first).unwrap();
+
+        let second = ensure_overdue_list(&conn, board).unwrap();
+        assert_ne!(second, first, "a tombstone is not resurrected");
+        assert!(list(&conn, second).unwrap().is_some());
+    }
+
+    #[test]
+    fn a_board_with_nothing_overdue_is_untouched() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let today = ensure_day_list(&conn, board, TODAY).unwrap();
+        create_task(&conn, today, "for today", author).unwrap();
+
+        assert_eq!(sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap(), Vec::<i64>::new());
+        assert_eq!(custom_lists(&conn, board).unwrap().len(), 0, "no list made for nothing");
     }
 
     // ---------------------------------------------------------- undo

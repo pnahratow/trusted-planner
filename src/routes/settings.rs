@@ -37,10 +37,12 @@ const PALETTE: &[&str] = &[
 async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     let me = current_user(&state, &jar)?;
 
-    let (users, boards, move_completed) = state.db.with(|conn| -> anyhow::Result<_> {
+    let (users, boards, move_completed, overdue_action) = state.db.with(|conn| -> anyhow::Result<_> {
         let users = queries::users(conn)?;
         let boards = queries::boards(conn)?;
         let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
+        let overdue_action =
+            queries::get_setting(conn, queries::OVERDUE_ACTION, queries::OVERDUE_LIST)?;
         let mut board_rows = Vec::new();
         for b in &boards {
             let members = queries::board_member_ids(conn, b.id)?;
@@ -52,7 +54,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
                 lists => lists,
             });
         }
-        Ok((users, board_rows, move_completed))
+        Ok((users, board_rows, move_completed, overdue_action))
     }).context("loading the settings page")?;
 
     let _theme = me.as_ref().map_or_else(|| "system".to_string(), |u| u.theme.clone());
@@ -64,6 +66,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
             boards => boards,
             palette => PALETTE,
             move_completed => move_completed,
+            overdue_action => overdue_action,
             me => me,
             theme => me.as_ref().map_or_else(|| "system".into(), |u| u.theme.clone()),
         },
@@ -207,16 +210,27 @@ struct DisplayForm {
     /// Absent when the checkbox is unticked — HTML forms omit rather than send false.
     #[serde(default)]
     move_completed_to_bottom: Option<String>,
+    #[serde(default)]
+    overdue_action: Option<String>,
 }
 
 /// App-wide display settings. Deliberately not per-user: two people looking at
 /// the same shared column should not see it in two different orders.
 async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm>) -> AppResult {
     let on = f.move_completed_to_bottom.is_some();
+    let overdue = match f.overdue_action.as_deref() {
+        Some(queries::OVERDUE_LEAVE) => queries::OVERDUE_LEAVE,
+        Some(queries::OVERDUE_TODAY) => queries::OVERDUE_TODAY,
+        _ => queries::OVERDUE_LIST,
+    };
     state
         .db
-        .with(|conn| queries::set_flag(conn, queries::MOVE_COMPLETED, on))
-        .context("saving the move-completed setting")?;
+        .with(|conn| -> anyhow::Result<_> {
+            queries::set_flag(conn, queries::MOVE_COMPLETED, on)?;
+            queries::set_setting(conn, queries::OVERDUE_ACTION, overdue)?;
+            Ok(())
+        })
+        .context("saving the display settings")?;
     Ok(Redirect::to("/settings").into_response())
 }
 

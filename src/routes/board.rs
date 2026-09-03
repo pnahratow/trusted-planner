@@ -47,6 +47,37 @@ async fn index(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     Ok(Redirect::to(&format!("/b/{}/w/{monday}", board.id)).into_response())
 }
 
+/// Applies the overdue rule before a grid is drawn.
+///
+/// Lazily, on page load, rather than from a scheduled job: a household app that
+/// is idle for days should not need a timer thread and a timezone-aware cron to
+/// stay correct, and looking at the board is exactly the moment the answer has
+/// to be right. The sweep is idempotent, so doing it on every render is safe
+/// and usually finds nothing.
+fn sweep_overdue(state: &AppState, board_id: i64) -> anyhow::Result<()> {
+    let today = calendar::fmt(calendar::today());
+    let touched = state.db.transaction(|tx| -> anyhow::Result<_> {
+        let action = queries::get_setting(tx, queries::OVERDUE_ACTION, queries::OVERDUE_LIST)?;
+        Ok(queries::sweep_overdue(tx, board_id, &today, &action)?)
+    })?;
+
+    // Tell other browsers which columns moved under them.
+    for list_id in touched {
+        if let Some(key) = state
+            .db
+            .with(|conn| -> anyhow::Result<_> {
+                Ok(queries::list(conn, list_id)?.and_then(|l| match &l.date {
+                    Some(d) => calendar::parse(d).map(ColumnKey::Day),
+                    None => Some(ColumnKey::List(l.id)),
+                }))
+            })?
+        {
+            state.changes.record(board_id, &key);
+        }
+    }
+    Ok(())
+}
+
 /// Everything a grid page renders, whichever grid it is.
 struct Grid {
     board: crate::models::Board,
@@ -157,6 +188,7 @@ async fn week(
     };
 
     let dates = calendar::week_of(start);
+    sweep_overdue(&state, board_id).context("applying the overdue rule")?;
     let grid = load_grid(
         &state,
         board_id,
@@ -236,6 +268,7 @@ async fn four_weeks(
     };
 
     let dates = calendar::weeks_from(monday, calendar::VIEW_WEEKS);
+    sweep_overdue(&state, board_id).context("applying the overdue rule")?;
     let grid = load_grid(
         &state,
         board_id,

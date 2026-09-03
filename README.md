@@ -88,6 +88,26 @@ it to exactly the position it held. A confirmation dialog would interrupt every
 deliberate delete to guard against the occasional slip — this way round, only
 the slip pays.
 
+## Days that have passed
+
+A task still unticked when its day is over follows one app-wide rule, set under
+Settings → Display:
+
+- **Move it to a list** (the default) — each board grows an `Unfinished` list,
+  so the calendar shows what is still planned rather than what went wrong. The
+  list is an ordinary custom list: rename it, or delete it and the next sweep
+  makes a new one.
+- **Move it to today**, and again each day it stays unticked.
+- **Leave it** on the day it was written for.
+
+Ticked tasks never move; a finished day stays as a record of itself.
+
+The sweep runs when a board is loaded, not from a timer. A household app that
+sits idle for days should not need a scheduler and a timezone-aware cron to be
+correct, and opening the board is exactly when the answer has to be right. It
+is idempotent, so running it on every page load costs a query that usually
+finds nothing.
+
 ## Theme
 
 Light, dark, or system, per person — it is about the eyes in front of the

@@ -126,12 +126,33 @@
   <p class="muted">Applies to everyone. Ordering belongs to the column, not to
      the person reading it — two people looking at the same shared list should
      not see it in two different orders.</p>
-  <form method="post" action="/settings/display" class="row-form">
+  <form method="post" action="/settings/display" class="display-form">
     <label class="inline-check">
       <input type="checkbox" name="move_completed_to_bottom"
              {% if move_completed %}checked{% endif %}>
       Move completed tasks to the bottom
     </label>
+
+    <fieldset class="choices">
+      <legend>When a day has passed and a task is still unticked</legend>
+      <label class="inline-check">
+        <input type="radio" name="overdue_action" value="list"
+               {% if overdue_action == "list" %}checked{% endif %}>
+        Move it to a list &mdash; each board gets an <strong>Unfinished</strong>
+        list, so the calendar shows only what is still planned
+      </label>
+      <label class="inline-check">
+        <input type="radio" name="overdue_action" value="today"
+               {% if overdue_action == "today" %}checked{% endif %}>
+        Move it to today, and again each day it stays unticked
+      </label>
+      <label class="inline-check">
+        <input type="radio" name="overdue_action" value="leave"
+               {% if overdue_action == "leave" %}checked{% endif %}>
+        Leave it on the day it was written for
+      </label>
+    </fieldset>
+
     <button type="submit" class="btn-primary">Save</button>
   </form>
 </section>
