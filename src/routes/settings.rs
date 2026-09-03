@@ -23,6 +23,7 @@ pub fn router() -> Router<AppState> {
         .route("/settings/board", post(board_action))
         .route("/settings/list", post(list_action))
         .route("/settings/display", post(display_action))
+        .route("/settings/theme", post(theme_action))
         .route("/whoami", post(whoami))
         .route("/pick", get(pick_page))
 }
@@ -217,6 +218,36 @@ async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm
         .with(|conn| queries::set_flag(conn, queries::MOVE_COMPLETED, on))
         .context("saving the move-completed setting")?;
     Ok(Redirect::to("/settings").into_response())
+}
+
+#[derive(Deserialize)]
+struct ThemeForm {
+    theme: String,
+    next: String,
+}
+
+/// The topbar's quick toggle. Theme is per-user, unlike ordering (D20): it is
+/// about the eyes in front of the screen, not about the shared data.
+async fn theme_action(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(f): Form<ThemeForm>,
+) -> AppResult {
+    let Some(me) = current_user(&state, &jar)? else {
+        return Ok(Redirect::to("/pick").into_response());
+    };
+    let theme = match f.theme.as_str() {
+        "light" | "dark" => f.theme.as_str(),
+        _ => "system",
+    };
+    state
+        .db
+        .with(|conn| queries::update_user(conn, me.id, &me.name, &me.colour, theme))
+        .context("saving the theme")?;
+
+    // Only ever back to a page of ours.
+    let next = if f.next.starts_with('/') { f.next } else { "/".into() };
+    Ok(Redirect::to(&next).into_response())
 }
 
 #[derive(Deserialize)]

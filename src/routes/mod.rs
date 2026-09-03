@@ -74,6 +74,18 @@ pub fn current_user(state: &AppState, jar: &CookieJar) -> Result<Option<User>> {
         .with_context(|| format!("loading the signed-in user {id}"))
 }
 
+/// The next theme in the cycle, and the symbol standing for the current one.
+///
+/// Three states rather than a switch, because "system" is a real choice and
+/// the only honest default: it follows whatever the device is already doing.
+pub fn theme_cycle(current: &str) -> (&'static str, &'static str) {
+    match current {
+        "light" => ("dark", "\u{2600}"),  // sun
+        "dark" => ("system", "\u{263e}"), // moon
+        _ => ("light", "\u{25d0}"),       // half-filled circle
+    }
+}
+
 /// Renders a template. Templates are read from disk at render time and run
 /// under strict-undefined, so a typo or a missing context name surfaces here
 /// as a 500 with the template named, rather than taking the process down or

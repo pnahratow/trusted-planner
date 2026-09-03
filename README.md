@@ -88,7 +88,14 @@ it to exactly the position it held. A confirmation dialog would interrupt every
 deliberate delete to guard against the occasional slip — this way round, only
 the slip pays.
 
+## Theme
+
+Light, dark, or system, per person — it is about the eyes in front of the
+screen, not the shared data. The topbar button cycles the three; Settings has
+the same choice spelled out.
+
 ## Status
 
-Phases 1–7 of the plan are done: skeleton, settings, week grid, task CRUD,
-drag & drop, live updates, four-week view. Polish and packaging follow.
+Phases 1–8 of the plan are done: skeleton, settings, week grid, task CRUD,
+drag & drop, live updates, four-week view, polish. Packaging (Docker, TrueNAS)
+is what is left.

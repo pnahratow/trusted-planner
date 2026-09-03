@@ -9,7 +9,7 @@ use axum_extra::extract::CookieJar;
 
 use crate::calendar;
 use crate::error::AppResult;
-use crate::routes::{current_user, render};
+use crate::routes::{current_user, render, theme_cycle};
 use crate::views::{self, density_for, ColumnKey, COMPACT, FULL};
 use serde::Deserialize;
 use crate::{queries, AppState};
@@ -180,6 +180,8 @@ async fn week(
         "week.html",
         minijinja::context! {
             theme => me.theme,
+            next_theme => theme_cycle(&me.theme).0,
+            theme_symbol => theme_cycle(&me.theme).1,
             me => me,
             users => grid.users,
             board => grid.board,
@@ -259,6 +261,8 @@ async fn four_weeks(
         "weeks.html",
         minijinja::context! {
             theme => me.theme,
+            next_theme => theme_cycle(&me.theme).0,
+            theme_symbol => theme_cycle(&me.theme).1,
             me => me,
             users => grid.users,
             board => grid.board,

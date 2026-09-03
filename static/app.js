@@ -115,6 +115,13 @@
       closeDayPanel();
       return;
     }
+    // Clicking the empty space in a column starts a new task there. Now that
+    // columns are full height that space is most of the screen, and it read as
+    // dead area.
+    if (evt.target.classList && evt.target.classList.contains("tasks")) {
+      var input = evt.target.parentElement.querySelector(".add-input");
+      if (input) input.focus();
+    }
     // Opening another editor is handled by that row's own request; cancelling
     // this one alongside it is exactly the intent.
     cancelEditorsOutside(evt.target);

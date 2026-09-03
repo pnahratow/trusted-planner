@@ -13,13 +13,19 @@
       <form method="post" action="/settings/user" class="row-form">
         <input type="hidden" name="action" value="update">
         <input type="hidden" name="id" value="{{ u.id }}">
-        <span class="swatch" style="background: {{ u.colour }}"></span>
         <input type="text" name="name" value="{{ u.name }}" required>
-        <select name="colour">
+        {# Radios rather than a dropdown: the choice is a colour, so it should
+           look like one instead of reading "#e0533d". #}
+        <span class="swatches">
           {% for c in palette %}
-            <option value="{{ c }}" {% if c == u.colour %}selected{% endif %}>{{ c }}</option>
+            <label class="swatch-option" style="--swatch: {{ c }}">
+              <input type="radio" name="colour" value="{{ c }}"
+                     {% if c == u.colour %}checked{% endif %}>
+              <span class="swatch-dot" aria-hidden="true"></span>
+              <span class="sr-only">Colour {{ loop.index }}</span>
+            </label>
           {% endfor %}
-        </select>
+        </span>
         <select name="theme" title="Theme">
           {% for t in ["system", "light", "dark"] %}
             <option value="{{ t }}" {% if t == u.theme %}selected{% endif %}>{{ t }}</option>

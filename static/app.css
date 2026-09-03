@@ -39,6 +39,13 @@
 
 * { box-sizing: border-box; }
 
+/* Visible focus for keyboard users, suppressed for mouse clicks. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -48,15 +55,18 @@ body {
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 10px 16px;
   padding: 10px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 
 .brand { font-weight: 600; text-decoration: none; color: var(--text); }
-.topbar-link { margin-left: auto; color: var(--accent); text-decoration: none; }
+.topbar-link { color: var(--accent); text-decoration: none; }
+.theme-toggle { margin-left: auto; }
+.theme-toggle .navbtn { font-size: 15px; line-height: 1; }
 
 main { padding: 16px; }
 
@@ -98,7 +108,9 @@ textarea { resize: vertical; width: 100%; }
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: var(--gap);
-  align-items: start;
+  /* Stretch, not start: every day is the same height, so an empty day is a
+     full column you can drop onto rather than a stub. */
+  align-items: stretch;
 }
 /* Custom lists sit in their own row beneath the days (D17). */
 .lists-row {
@@ -106,7 +118,7 @@ textarea { resize: vertical; width: 100%; }
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: var(--gap);
   margin-top: var(--gap);
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 1100px) {
@@ -238,6 +250,22 @@ textarea { resize: vertical; width: 100%; }
   display: inline-block; flex: none;
 }
 .inline-check { display: inline-flex; align-items: center; gap: 4px; font-size: 0.9em; }
+
+.swatches { display: inline-flex; gap: 5px; }
+.swatch-option { display: inline-flex; cursor: pointer; }
+.swatch-option input { position: absolute; opacity: 0; width: 0; height: 0; }
+.swatch-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 2px var(--border);
+}
+.swatch-option:hover .swatch-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--muted); }
+.swatch-option input:checked + .swatch-dot {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+.swatch-option input:focus-visible + .swatch-dot {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
 .members { display: flex; flex-wrap: wrap; gap: 10px; }
 
 .board-card {
@@ -282,8 +310,10 @@ textarea { resize: vertical; width: 100%; }
 }
 .drag-chosen { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
-/* Give an empty column a real drop target rather than a one-line strip. */
-.tasks { min-height: 42px; }
+/* The task area takes the slack, so the add row sits at the foot of the column
+   and the empty space above it is a drop target. */
+.tasks { min-height: 42px; cursor: text; }
+.tasks > .task { cursor: grab; }
 
 /* ------------------------------------------------------ four-week grid */
 
@@ -358,6 +388,8 @@ textarea { resize: vertical; width: 100%; }
 .panel-head h2 { margin: 0; font-size: 1rem; }
 .panel-close { opacity: 1; font-size: 20px; }
 .panel-card .column { border: 0; border-radius: 0; overflow-y: auto; }
+/* The panel's own header already names the day. */
+.panel-card .column-head { display: none; }
 
 /* ------------------------------------------------------------- undo bar */
 
@@ -384,3 +416,12 @@ textarea { resize: vertical; width: 100%; }
   background: var(--accent); color: #fff;
 }
 .undo-btn:hover { filter: brightness(1.08); }
+
+/* The range label is the first thing to go when the bar runs out of room. */
+@media (max-width: 640px) {
+  .range { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
