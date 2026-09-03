@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="{{ theme | default('system') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Trusted Planner{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/vendor/sortable.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Trusted&nbsp;Planner</a>
+    {% block topbar %}{% endblock %}
+    <a class="topbar-link" href="/settings">Settings</a>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

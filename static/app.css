@@ -1,0 +1,72 @@
+/* Trusted Planner — one stylesheet, no pipeline. Theming is custom properties.
+   Light is the base; dark is a token swap. `data-theme` on <html> wins over the
+   system preference so an explicit choice is honoured in both directions. */
+
+:root {
+  --bg:        #f6f7f9;
+  --surface:   #ffffff;
+  --border:    #dfe3e8;
+  --text:      #1b1f24;
+  --muted:     #6b7280;
+  --accent:    #3563e9;
+  --done:      #9aa3af;
+  --radius:    8px;
+  --gap:       10px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:      #14171c;
+    --surface: #1c2027;
+    --border:  #2c323b;
+    --text:    #e6e9ee;
+    --muted:   #9aa3af;
+    --accent:  #6b8afd;
+    --done:    #6b7280;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:      #14171c;
+  --surface: #1c2027;
+  --border:  #2c323b;
+  --text:    #e6e9ee;
+  --muted:   #9aa3af;
+  --accent:  #6b8afd;
+  --done:    #6b7280;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--font);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand { font-weight: 600; text-decoration: none; color: var(--text); }
+.topbar-link { margin-left: auto; color: var(--accent); text-decoration: none; }
+
+main { padding: 16px; }
+
+.placeholder {
+  max-width: 40rem;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.placeholder h1 { margin-top: 0; font-size: 1.4rem; }
+.muted { color: var(--muted); }
