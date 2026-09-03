@@ -1,0 +1,28 @@
+{# A column is a day or a custom list — same markup, same behaviour, because a
+   day is just a list that has a date. #}
+<section class="column{% if col.is_today %} is-today{% endif %}{% if col.is_outside %} is-outside{% endif %}{% if not col.is_day %} is-list{% endif %}"
+         id="col-{{ col.key }}" data-key="{{ col.key }}"
+         hx-get="/b/{{ board_id }}/col/{{ col.key }}"
+         hx-trigger="refresh-column"
+         hx-swap="outerHTML">
+  <header class="column-head">
+    <span class="col-heading">{{ col.heading }}</span>
+    {% if col.subheading %}<span class="col-sub">{{ col.subheading }}</span>{% endif %}
+  </header>
+
+  <ul class="tasks">
+    {% for task in col.tasks %}
+      {% include "task_row.html" %}
+    {% else %}
+      <li class="empty">Nothing yet</li>
+    {% endfor %}
+  </ul>
+
+  <form class="add-task"
+        hx-post="/b/{{ board_id }}/task"
+        hx-target="closest .column" hx-swap="outerHTML">
+    <input type="hidden" name="key" value="{{ col.key }}">
+    <input class="add-input" type="text" name="title" placeholder="+ Add task"
+           autocomplete="off" data-column="{{ col.key }}">
+  </form>
+</section>

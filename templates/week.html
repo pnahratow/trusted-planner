@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block title %}{{ board.name }} — {{ range_label }}{% endblock %}
+
+{% block topbar %}
+<form class="picker" method="post" action="/whoami">
+  <input type="hidden" name="next" value="/b/{{ board.id }}/w/{{ monday }}">
+  <label class="sr-only" for="who">Identity</label>
+  <select id="who" name="user_id" onchange="this.form.submit()">
+    {% for u in users %}
+      <option value="{{ u.id }}" {% if u.id == me.id %}selected{% endif %}>{{ u.name }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<label class="sr-only" for="board">Board</label>
+<select id="board" class="picker-select"
+        onchange="location.href='/b/' + this.value + '/w/{{ monday }}'">
+  {% for b in boards %}
+    <option value="{{ b.id }}" {% if b.id == board.id %}selected{% endif %}>{{ b.name }}</option>
+  {% endfor %}
+</select>
+
+<nav class="weeknav">
+  <a class="navbtn" href="/b/{{ board.id }}/w/{{ prev_week }}" aria-label="Previous week">&lsaquo;</a>
+  <a class="navbtn today-btn" href="/b/{{ board.id }}/w/{{ this_week }}">Today</a>
+  <a class="navbtn" href="/b/{{ board.id }}/w/{{ next_week }}" aria-label="Next week">&rsaquo;</a>
+  <span class="range">{{ range_label }}</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="week-grid">
+  {% for col in days %}
+    {% include "column.html" %}
+  {% endfor %}
+</div>
+
+{% if lists %}
+<div class="lists-row">
+  {% for col in lists %}
+    {% include "column.html" %}
+  {% endfor %}
+</div>
+{% else %}
+<p class="hint">No custom lists on this board yet — add one in
+   <a href="/settings">settings</a>.</p>
+{% endif %}
+{% endblock %}

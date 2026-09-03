@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block title %}Who are you?{% endblock %}
+{% block content %}
+<section class="placeholder">
+  <h1>Who are you?</h1>
+  <p class="muted">Colour identifies you in shared boards. There is no password —
+     everyone on this network is trusted.</p>
+  <ul class="pick-list">
+    {% for u in users %}
+    <li>
+      <form method="post" action="/whoami">
+        <input type="hidden" name="user_id" value="{{ u.id }}">
+        <input type="hidden" name="next" value="/">
+        <button type="submit" class="pick-btn">
+          <span class="swatch" style="background: {{ u.colour }}"></span>{{ u.name }}
+        </button>
+      </form>
+    </li>
+    {% else %}
+    <li class="muted">No users yet — <a href="/settings">create one in settings</a>.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

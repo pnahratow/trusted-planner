@@ -1,0 +1,128 @@
+{% extends "layout.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+
+<section class="panel">
+  <h2>Users</h2>
+  <p class="muted">Colour means identity and only identity — it marks who wrote a
+     task on a shared board.</p>
+
+  <ul class="settings-list">
+  {% for u in users %}
+    <li>
+      <form method="post" action="/settings/user" class="row-form">
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="id" value="{{ u.id }}">
+        <span class="swatch" style="background: {{ u.colour }}"></span>
+        <input type="text" name="name" value="{{ u.name }}" required>
+        <select name="colour">
+          {% for c in palette %}
+            <option value="{{ c }}" {% if c == u.colour %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+        <select name="theme" title="Theme">
+          {% for t in ["system", "light", "dark"] %}
+            <option value="{{ t }}" {% if t == u.theme %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <label class="inline-check">
+          <input type="checkbox" name="move_completed_to_bottom"
+                 {% if u.move_completed_to_bottom %}checked{% endif %}>
+          done last
+        </label>
+        <button type="submit" class="btn-primary">Save</button>
+      </form>
+      <form method="post" action="/settings/user" class="inline-form">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="id" value="{{ u.id }}">
+        <button type="submit" class="btn-danger"
+                onclick="return confirm('Remove {{ u.name }}? Their tasks stay.')">Remove</button>
+      </form>
+    </li>
+  {% else %}
+    <li class="muted">No users yet. Add the first one below.</li>
+  {% endfor %}
+  </ul>
+
+  <form method="post" action="/settings/user" class="add-form">
+    <input type="hidden" name="action" value="create">
+    <input type="text" name="name" placeholder="New user name" required>
+    <button type="submit" class="btn-primary">Add user</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Boards</h2>
+  <p class="muted">A board owns its lists and tasks. A personal board is just a
+     board with one member — the boundary is soft, not protected.</p>
+
+  {% for b in boards %}
+  <div class="board-card">
+    <form method="post" action="/settings/board" class="row-form">
+      <input type="hidden" name="action" value="update">
+      <input type="hidden" name="id" value="{{ b.id }}">
+      <input type="text" name="name" value="{{ b.name }}" required>
+      <span class="members">
+        {% for u in users %}
+          <label class="inline-check">
+            <input type="checkbox" name="member" value="{{ u.id }}"
+                   {% if u.id in b.members %}checked{% endif %}>
+            {{ u.name }}
+          </label>
+        {% endfor %}
+      </span>
+      <button type="submit" class="btn-primary">Save</button>
+    </form>
+
+    <div class="board-lists">
+      <span class="muted">Custom lists:</span>
+      {% for l in b.lists %}
+        <form method="post" action="/settings/list" class="inline-form">
+          <input type="hidden" name="action" value="delete">
+          <input type="hidden" name="id" value="{{ l.id }}">
+          <span class="chip">{{ l.name }}
+            <button type="submit" class="chip-x" aria-label="Delete list">&times;</button>
+          </span>
+        </form>
+      {% else %}
+        <span class="muted">none</span>
+      {% endfor %}
+      <form method="post" action="/settings/list" class="inline-form">
+        <input type="hidden" name="action" value="create">
+        <input type="hidden" name="board_id" value="{{ b.id }}">
+        <input type="text" name="name" placeholder="+ list" size="10" required>
+        <button type="submit" class="btn-plain">Add</button>
+      </form>
+    </div>
+
+    <form method="post" action="/settings/board" class="inline-form">
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="id" value="{{ b.id }}">
+      <button type="submit" class="btn-danger"
+              onclick="return confirm('Remove board {{ b.name }}?')">Remove board</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">No boards yet.</p>
+  {% endfor %}
+
+  <form method="post" action="/settings/board" class="add-form">
+    <input type="hidden" name="action" value="create">
+    <input type="text" name="name" placeholder="New board name" required>
+    <span class="members">
+      {% for u in users %}
+        <label class="inline-check">
+          <input type="checkbox" name="member" value="{{ u.id }}" checked> {{ u.name }}
+        </label>
+      {% endfor %}
+    </span>
+    <button type="submit" class="btn-primary">Add board</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>This browser</h2>
+  <p>You are currently <strong>{{ me.name if me else "nobody" }}</strong>.
+     <a href="/pick">Switch identity</a></p>
+</section>
+{% endblock %}

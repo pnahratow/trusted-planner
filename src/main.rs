@@ -3,10 +3,13 @@
 //! Server-authoritative by design: clients send intent, the server owns state
 //! and ordering and renders the truth back.
 
+mod calendar;
 mod db;
 mod models;
+mod queries;
 mod routes;
 mod templates;
+mod views;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
