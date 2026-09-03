@@ -1,6 +1,6 @@
 {# Replaces a task row in place. Carries the version it was rendered from, which
    is what the save is checked against. #}
-<li class="task task-editing" id="task-{{ task.id }}">
+<li class="task task-editing" id="task-{{ task.id }}" data-task-id="{{ task.id }}">
   {% if conflict %}
   <p class="conflict">
     Someone else changed this task while you were editing. Your draft is kept below —
@@ -20,9 +20,9 @@
               placeholder="Notes…">{{ task.notes }}</textarea>
     <div class="edit-actions">
       <button type="submit" class="btn-primary">Save</button>
-      <button type="button" class="btn-plain"
-              hx-get="/b/{{ board_id }}/col/{{ col_key }}"
-              hx-target="closest .column" hx-swap="outerHTML">Cancel</button>
+      <button type="button" class="btn-plain" data-cancel-edit
+              hx-get="/task/{{ task.id }}/row"
+              hx-target="#task-{{ task.id }}" hx-swap="outerHTML">Cancel</button>
     </div>
   </form>
 </li>

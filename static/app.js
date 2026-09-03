@@ -61,6 +61,41 @@
     }
   });
 
+  // -------------------------------------------------- click away to cancel
+  //
+  // An open editor is dismissed by clicking anything that is not part of it,
+  // or by pressing Escape. Cancelling swaps the plain row back over just that
+  // row, so a second editor elsewhere in the same column is left alone.
+  function cancelEditor(editor) {
+    var id = editor.dataset.taskId;
+    if (!id || editor.dataset.cancelling) return;
+    editor.dataset.cancelling = "1"; // a stray second click must not re-fire
+    window.htmx.ajax("GET", "/task/" + id + "/row", {
+      target: "#task-" + id,
+      swap: "outerHTML",
+    });
+  }
+
+  function cancelEditorsOutside(target) {
+    var open = document.querySelectorAll(".task-editing");
+    for (var i = 0; i < open.length; i++) {
+      if (!open[i].contains(target)) cancelEditor(open[i]);
+    }
+  }
+
+  document.addEventListener("click", function (evt) {
+    // Opening another editor is handled by that row's own request; cancelling
+    // this one alongside it is exactly the intent.
+    cancelEditorsOutside(evt.target);
+  });
+
+  document.addEventListener("keydown", function (evt) {
+    if (evt.key !== "Escape") return;
+    var editor = evt.target.closest ? evt.target.closest(".task-editing") : null;
+    if (editor) cancelEditor(editor);
+    else cancelEditorsOutside(document.body);
+  });
+
   // ------------------------------------------------------------ drag & drop
   //
   // Sortable moves the row optimistically so the drag feels immediate; the

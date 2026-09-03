@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/b/{board}/task", post(create))
         .route("/task/{id}/toggle", post(toggle))
         .route("/task/{id}/edit", get(edit_form))
+        .route("/task/{id}/row", get(row_fragment))
         .route("/task/{id}", post(update))
         .route("/task/{id}/delete", post(delete))
         .route("/task/{id}/move", post(move_task))
@@ -162,6 +163,37 @@ async fn edit_form(State(state): State<AppState>, Path(id): Path<i64>) -> AppRes
             task => task, board_id => board_id,
             col_key => col_key, conflict => false,
         },
+    )
+}
+
+/// One task row, as it looks when not being edited. Cancelling an edit swaps
+/// this back over the editor — a row-sized answer rather than re-rendering the
+/// whole column, so a second editor open in the same column survives it.
+async fn row_fragment(State(state): State<AppState>, Path(id): Path<i64>) -> AppResult {
+    let loaded = state
+        .db
+        .with(|conn| -> anyhow::Result<_> {
+            let Some(t) = queries::task(conn, id)? else {
+                return Ok(None);
+            };
+            let Some(l) = queries::list(conn, t.list_id)? else {
+                return Ok(None);
+            };
+            let authors = queries::users(conn)?;
+            let show_colour = queries::board_member_count(conn, l.board_id)? > 1;
+            Ok(Some((views::task_view(&t, &authors), show_colour)))
+        })
+        .with_context(|| format!("loading the row for task {id}"))?;
+
+    let Some((task, show_colour)) = loaded else {
+        // Deleted under the editor: answer with nothing so the row disappears
+        // rather than leaving a stuck editor behind.
+        return Ok(axum::response::Html(String::new()).into_response());
+    };
+    render(
+        &state,
+        "task_row.html",
+        minijinja::context! { task => task, show_colour => show_colour },
     )
 }
 
