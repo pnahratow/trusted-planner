@@ -5,6 +5,7 @@
 
 mod calendar;
 mod db;
+mod error;
 mod models;
 mod queries;
 mod routes;
@@ -30,7 +31,7 @@ pub struct AppState {
 }
 
 /// Runtime configuration, all overridable from the environment so the same
-/// image works locally and on TrueNAS.
+/// image works locally and on `TrueNAS`.
 struct Config {
     data_dir: PathBuf,
     template_dir: PathBuf,

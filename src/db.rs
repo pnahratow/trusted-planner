@@ -6,6 +6,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 
+use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 /// Migrations are embedded so the binary is self-contained; the on-disk
@@ -22,8 +23,9 @@ pub struct Db {
 impl Db {
     /// Opens (creating if needed) the database at `path` and brings it up to
     /// the latest schema version.
-    pub fn open(path: &Path) -> rusqlite::Result<Self> {
-        let conn = Connection::open(path)?;
+    pub fn open(path: &Path) -> Result<Self> {
+        let conn = Connection::open(path)
+            .with_context(|| format!("opening database at {}", path.display()))?;
 
         // WAL lets readers proceed during a write; busy_timeout absorbs the
         // brief contention two people clicking at once can produce.
@@ -35,13 +37,13 @@ impl Db {
         let db = Self {
             conn: Mutex::new(conn),
         };
-        db.migrate()?;
+        db.migrate().context("running migrations")?;
         Ok(db)
     }
 
     /// Runs any migrations the database has not seen yet, each in its own
     /// transaction so a failure leaves the schema at the last good version.
-    fn migrate(&self) -> rusqlite::Result<()> {
+    fn migrate(&self) -> Result<()> {
         let mut conn = self.conn.lock().expect("db mutex poisoned");
 
         conn.execute(
@@ -72,24 +74,39 @@ impl Db {
             tracing::info!(version, "applied migration");
         }
 
+        drop(conn); // release the lock before returning, not at scope end
         Ok(())
     }
 
     /// Runs `f` with the single shared connection.
-    pub fn with<T>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> rusqlite::Result<T> {
+    ///
+    /// Generic over the closure's error so both shapes pass through unchanged:
+    /// a bare `queries::*` function (`rusqlite::Result`) can be handed over
+    /// directly, while a closure doing several queries can return
+    /// `anyhow::Result` and attach `.context()`. Callers lift either with `?`.
+    pub fn with<T, E>(
+        &self,
+        f: impl FnOnce(&Connection) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E> {
         let conn = self.conn.lock().expect("db mutex poisoned");
-        f(&conn)
+        let out = f(&conn);
+        drop(conn); // release before the caller does anything with the result
+        out
     }
 
     /// Runs `f` inside a transaction, committing on `Ok` and rolling back on `Err`.
-    pub fn transaction<T>(
+    pub fn transaction<T, E>(
         &self,
-        f: impl FnOnce(&rusqlite::Transaction<'_>) -> rusqlite::Result<T>,
-    ) -> rusqlite::Result<T> {
+        f: impl FnOnce(&rusqlite::Transaction<'_>) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<rusqlite::Error>,
+    {
         let mut conn = self.conn.lock().expect("db mutex poisoned");
         let tx = conn.transaction()?;
         let out = f(&tx)?;
         tx.commit()?;
+        drop(conn);
         Ok(out)
     }
 }

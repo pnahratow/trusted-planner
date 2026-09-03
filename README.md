@@ -32,11 +32,21 @@ up on the next page load with no rebuild and no restart.
 
 ```sh
 cargo test
+cargo clippy --all-targets   # pedantic + nursery, warning-free
 ```
 
-Covers the two things that are easy to get subtly wrong — task position
-renumbering across moves and deletes, and compare-and-swap refusal on a stale
-edit — plus the calendar date-range maths.
+Covers the things that are easy to get subtly wrong — task position renumbering
+across moves and deletes, translating a drop onto its neighbour, compare-and-swap
+refusal on a stale edit — plus the calendar date-range maths.
+
+`every_query_prepares_and_runs` exercises all 33 query functions once against a
+real schema. SQLite only parses SQL when a statement is prepared, so without it a
+typo in a rarely-hit path (renaming a list, removing a board) would stay hidden
+until someone triggered it in production.
+
+The rendered page is checked in a real browser (headless Chromium over the
+DevTools protocol) rather than only with `curl`, because a template that renders
+a hole still returns 200 to a request that never looks at the markup.
 
 ## Status
 

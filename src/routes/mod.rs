@@ -5,9 +5,11 @@ pub mod health;
 pub mod settings;
 pub mod task;
 
+use anyhow::{Context, Result};
 use axum::Router;
 use axum_extra::extract::CookieJar;
 
+use crate::error::AppResult;
 use crate::models::User;
 use crate::AppState;
 
@@ -23,39 +25,41 @@ pub fn router() -> Router<AppState> {
 /// no auth, no permission checks (D8). Everyone on the LAN is trusted.
 pub const IDENTITY_COOKIE: &str = "user_id";
 
-pub fn current_user(state: &AppState, jar: &CookieJar) -> Option<User> {
-    let id: i64 = jar.get(IDENTITY_COOKIE)?.value().parse().ok()?;
-    state.db.with(|conn| crate::queries::user(conn, id)).ok()?
+/// `Ok(None)` means nobody is signed in here — a normal state that routes
+/// answer with the picker. A database failure is an error, not an anonymous
+/// visitor, so it propagates instead of being flattened into `None`.
+pub fn current_user(state: &AppState, jar: &CookieJar) -> Result<Option<User>> {
+    let Some(raw) = jar.get(IDENTITY_COOKIE) else {
+        return Ok(None);
+    };
+    let Ok(id) = raw.value().parse::<i64>() else {
+        return Ok(None); // a mangled cookie is not an error, just not an identity
+    };
+    state
+        .db
+        .with(|conn| crate::queries::user(conn, id))
+        .with_context(|| format!("loading the signed-in user {id}"))
 }
 
 /// The app-wide "completed tasks sink to the bottom" setting. Ordering is a
 /// property of the column, not of the reader, so everyone sees it the same way.
-pub fn move_completed(state: &AppState) -> bool {
+pub fn move_completed(state: &AppState) -> Result<bool> {
     state
         .db
         .with(|conn| crate::queries::get_flag(conn, crate::queries::MOVE_COMPLETED, true))
-        .unwrap_or(true)
+        .context("reading the move-completed setting")
 }
 
-/// Renders a template or turns the error into a 500 — templates are edited live,
-/// so a typo in one must not take the process down.
-pub fn render<S: serde::Serialize>(
-    state: &AppState,
-    name: &str,
-    ctx: S,
-) -> axum::response::Response {
-    use axum::http::StatusCode;
+/// Renders a template. Templates are read from disk at render time and run
+/// under strict-undefined, so a typo or a missing context name surfaces here
+/// as a 500 with the template named, rather than taking the process down or
+/// silently rendering a hole.
+pub fn render<S: serde::Serialize>(state: &AppState, name: &str, ctx: S) -> AppResult {
     use axum::response::{Html, IntoResponse};
 
-    match state.tmpl.render(name, ctx) {
-        Ok(html) => Html(html).into_response(),
-        Err(e) => {
-            tracing::error!(template = name, error = %e, "render failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("template error in {name}: {e}\n"),
-            )
-                .into_response()
-        }
-    }
+    let html = state
+        .tmpl
+        .render(name, ctx)
+        .with_context(|| format!("rendering template {name}"))?;
+    Ok(Html(html).into_response())
 }

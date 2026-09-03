@@ -429,12 +429,13 @@ pub fn position_after(
         return Ok(0);
     };
     let ids = task_ids_in_list(conn, dest_list, Some(moved))?;
-    Ok(match ids.iter().position(|id| *id == after) {
-        Some(i) => i as i64 + 1,
+    let target = ids.iter().position(|id| *id == after).map_or_else(
         // The neighbour is gone (deleted or moved by someone else); appending
         // is closer to the intent than silently landing at the top.
-        None => ids.len() as i64,
-    })
+        || ids.len(),
+        |i| i + 1,
+    );
+    Ok(i64::try_from(target).unwrap_or(i64::MAX))
 }
 
 /// Moves a task to `position` in `dest_list`, renumbering both the list it left
@@ -580,7 +581,7 @@ mod tests {
         let (conn, author, a, b) = fixture();
         let ids = seed(&conn, a, author, &["only"]);
         move_task(&conn, ids[0], b, 0).unwrap();
-        assert!(titles(&conn, a).is_empty());
+        assert_eq!(titles(&conn, a), [] as [std::string::String; 0]);
         assert_eq!(titles(&conn, b), ["only"]);
         assert_eq!(positions(&conn, b), [0]);
     }
@@ -604,11 +605,13 @@ mod tests {
         let (conn, author, a, b) = fixture();
         let ids = seed(&conn, a, author, &["one", "two", "three", "four"]);
         for (i, id) in ids.iter().enumerate() {
-            move_task(&conn, *id, if i % 2 == 0 { b } else { a }, i as i64).unwrap();
+            let target = i64::try_from(i).unwrap();
+            move_task(&conn, *id, if i % 2 == 0 { b } else { a }, target).unwrap();
         }
         for list in [a, b] {
             let p = positions(&conn, list);
-            assert_eq!(p, (0..p.len() as i64).collect::<Vec<_>>(), "list {list} drifted");
+            let dense: Vec<i64> = (0..i64::try_from(p.len()).unwrap()).collect();
+            assert_eq!(p, dense, "list {list} drifted");
         }
     }
 
@@ -620,6 +623,74 @@ mod tests {
         move_task(&conn, ids[2], a, 0).unwrap();
         assert_eq!(titles(&conn, a), ["three", "two"]);
         assert_eq!(positions(&conn, a), [0, 1]);
+    }
+
+    /// Exercises every query function once against a real schema.
+    ///
+    /// rusqlite only parses SQL when a statement is prepared, so a typo in a
+    /// rarely-hit path — renaming a list, removing a board — would otherwise
+    /// stay invisible until someone triggered it in production. This is the
+    /// cheap half of what a compile-time-checked query layer would buy, and it
+    /// costs no build-time database.
+    #[test]
+    fn every_query_prepares_and_runs() {
+        let (conn, author, list_a, _list_b) = fixture();
+
+        // users
+        let u2 = create_user(&conn, "Second", "#e0533d").unwrap();
+        assert_eq!(users(&conn).unwrap().len(), 2);
+        assert!(user(&conn, author).unwrap().is_some());
+        update_user(&conn, u2, "Renamed", "#2ea36b", "dark").unwrap();
+        assert_eq!(user(&conn, u2).unwrap().unwrap().theme, "dark");
+        delete_user(&conn, u2).unwrap();
+        assert!(user(&conn, u2).unwrap().is_none(), "soft-deleted users stop resolving");
+        assert_eq!(users(&conn).unwrap().len(), 1);
+
+        // boards and membership
+        let b = create_board(&conn, "Board Two").unwrap();
+        assert!(board(&conn, b).unwrap().is_some());
+        assert!(boards(&conn).unwrap().len() >= 2);
+        set_board_members(&conn, b, &[author]).unwrap();
+        assert_eq!(board_member_ids(&conn, b).unwrap(), vec![author]);
+        assert_eq!(board_member_count(&conn, b).unwrap(), 1);
+        assert!(boards_for_user(&conn, author).unwrap().iter().any(|x| x.id == b));
+        rename_board(&conn, b, "Renamed Board").unwrap();
+        assert_eq!(board(&conn, b).unwrap().unwrap().name, "Renamed Board");
+
+        // lists
+        let cl = create_custom_list(&conn, b, "Shopping").unwrap();
+        assert!(list(&conn, cl).unwrap().is_some());
+        assert_eq!(custom_lists(&conn, b).unwrap().len(), 1);
+        rename_list(&conn, cl, "Groceries").unwrap();
+        assert_eq!(list(&conn, cl).unwrap().unwrap().name.unwrap(), "Groceries");
+
+        let day = ensure_day_list(&conn, b, "2026-09-03").unwrap();
+        assert_eq!(day_lists_in_range(&conn, b, "2026-09-01", "2026-09-30").unwrap().len(), 1);
+        assert!(day_lists_in_range(&conn, b, "2026-10-01", "2026-10-31").unwrap().is_empty());
+
+        // tasks
+        let t1 = create_task(&conn, day, "first", author).unwrap();
+        let t2 = create_task(&conn, cl, "second", author).unwrap();
+        assert!(task(&conn, t1).unwrap().is_some());
+        assert_eq!(task_ids_in_list(&conn, day, None).unwrap(), vec![t1]);
+        assert_eq!(task_ids_in_list(&conn, day, Some(t1)).unwrap(), Vec::<i64>::new());
+        assert_eq!(tasks_for_list(&conn, cl, false).unwrap().len(), 1);
+        assert_eq!(tasks_for_lists(&conn, &[day, cl], true).unwrap().len(), 2);
+        assert!(tasks_for_lists(&conn, &[], false).unwrap().is_empty(), "no ids, no query");
+
+        // flags
+        set_flag(&conn, MOVE_COMPLETED, false).unwrap();
+        assert!(!get_flag(&conn, MOVE_COMPLETED, true).unwrap());
+
+        // teardown paths, which are the least-travelled SQL in the app
+        delete_task(&conn, t2).unwrap();
+        delete_list(&conn, cl).unwrap();
+        assert_eq!(custom_lists(&conn, b).unwrap().len(), 0);
+        delete_board(&conn, b).unwrap();
+        assert!(board(&conn, b).unwrap().is_none());
+
+        // the fixture's own list is still intact and queryable
+        assert!(tasks_for_list(&conn, list_a, true).unwrap().is_empty());
     }
 
     // ------------------------------------------- drop intent -> position
@@ -678,7 +749,7 @@ mod tests {
         assert_eq!(pos, 2);
         move_task(&conn, moved, b, pos).unwrap();
         assert_eq!(titles(&conn, b), ["x", "y", "moved", "z"]);
-        assert!(titles(&conn, a).is_empty());
+        assert_eq!(titles(&conn, a), [] as [std::string::String; 0]);
     }
 
     #[test]

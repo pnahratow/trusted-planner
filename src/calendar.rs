@@ -5,7 +5,7 @@ use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 /// Monday of the week containing `date`. Weeks start Monday (v1, not configurable).
 pub fn monday_of(date: NaiveDate) -> NaiveDate {
-    date - Duration::days(date.weekday().num_days_from_monday() as i64)
+    date - Duration::days(i64::from(date.weekday().num_days_from_monday()))
 }
 
 /// The 7 dates of the week starting at `monday`.

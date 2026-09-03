@@ -1,7 +1,8 @@
 //! Users, boards, membership, custom lists, and the identity picker.
 
+use anyhow::Context;
 use axum::extract::State;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::Router;
 // serde_urlencoded (axum::Form) cannot deserialise repeated keys into a Vec,
@@ -11,6 +12,7 @@ use axum_extra::extract::cookie::{Cookie, SameSite};
 use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
+use crate::error::AppResult;
 use crate::routes::{current_user, render, IDENTITY_COOKIE};
 use crate::{queries, AppState};
 
@@ -31,10 +33,10 @@ const PALETTE: &[&str] = &[
     "#3563e9", "#e0533d", "#2ea36b", "#b552d6", "#d99a1f", "#0e9bb5", "#d64f8a", "#5b6470",
 ];
 
-async fn page(State(state): State<AppState>, jar: CookieJar) -> Response {
-    let me = current_user(&state, &jar);
+async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
+    let me = current_user(&state, &jar)?;
 
-    let data = state.db.with(|conn| {
+    let (users, boards, move_completed) = state.db.with(|conn| -> anyhow::Result<_> {
         let users = queries::users(conn)?;
         let boards = queries::boards(conn)?;
         let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
@@ -50,17 +52,9 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> Response {
             });
         }
         Ok((users, board_rows, move_completed))
-    });
+    }).context("loading the settings page")?;
 
-    let (users, boards, move_completed) = match data {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "settings load failed");
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "database error\n")
-                .into_response();
-        }
-    };
-
+    let _theme = me.as_ref().map_or_else(|| "system".to_string(), |u| u.theme.clone());
     render(
         &state,
         "settings.html",
@@ -70,7 +64,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> Response {
             palette => PALETTE,
             move_completed => move_completed,
             me => me,
-            theme => me.as_ref().map(|u| u.theme.clone()).unwrap_or_else(|| "system".into()),
+            theme => me.as_ref().map_or_else(|| "system".into(), |u| u.theme.clone()),
         },
     )
 }
@@ -88,9 +82,9 @@ struct UserForm {
     theme: Option<String>,
 }
 
-async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> Response {
+async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> AppResult {
     let name = f.name.trim().to_string();
-    let result = state.db.with(|conn| {
+    state.db.with(|conn| -> anyhow::Result<_> {
         match f.action.as_str() {
             "create" if !name.is_empty() => {
                 // Cycle the palette so consecutive users never collide.
@@ -103,8 +97,8 @@ async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> 
                 queries::create_user(conn, &name, &colour)?;
             }
             "update" => {
-                if let Some(id) = f.id {
-                    if !name.is_empty() {
+                if let Some(id) = f.id
+                    && !name.is_empty() {
                         queries::update_user(
                             conn,
                             id,
@@ -113,7 +107,6 @@ async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> 
                             f.theme.as_deref().unwrap_or("system"),
                         )?;
                     }
-                }
             }
             "delete" => {
                 if let Some(id) = f.id {
@@ -123,12 +116,9 @@ async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> 
             _ => {}
         }
         Ok(())
-    });
+    }).with_context(|| format!("user action {:?}", f.action))?;
 
-    if let Err(e) = result {
-        tracing::error!(error = %e, "user action failed");
-    }
-    Redirect::to("/settings").into_response()
+    Ok(Redirect::to("/settings").into_response())
 }
 
 #[derive(Deserialize)]
@@ -143,9 +133,9 @@ struct BoardForm {
     member: Vec<i64>,
 }
 
-async fn board_action(State(state): State<AppState>, Form(f): Form<BoardForm>) -> Response {
+async fn board_action(State(state): State<AppState>, Form(f): Form<BoardForm>) -> AppResult {
     let name = f.name.trim().to_string();
-    let result = state.db.transaction(|tx| {
+    state.db.transaction(|tx| -> anyhow::Result<_> {
         match f.action.as_str() {
             "create" if !name.is_empty() => {
                 let id = queries::create_board(tx, &name)?;
@@ -167,12 +157,9 @@ async fn board_action(State(state): State<AppState>, Form(f): Form<BoardForm>) -
             _ => {}
         }
         Ok(())
-    });
+    }).with_context(|| format!("board action {:?}", f.action))?;
 
-    if let Err(e) = result {
-        tracing::error!(error = %e, "board action failed");
-    }
-    Redirect::to("/settings").into_response()
+    Ok(Redirect::to("/settings").into_response())
 }
 
 #[derive(Deserialize)]
@@ -186,16 +173,15 @@ struct ListForm {
     name: String,
 }
 
-async fn list_action(State(state): State<AppState>, Form(f): Form<ListForm>) -> Response {
+async fn list_action(State(state): State<AppState>, Form(f): Form<ListForm>) -> AppResult {
     let name = f.name.trim().to_string();
-    let result = state.db.with(|conn| {
+    state.db.with(|conn| -> anyhow::Result<_> {
         match f.action.as_str() {
             "create" => {
-                if let Some(board_id) = f.board_id {
-                    if !name.is_empty() {
+                if let Some(board_id) = f.board_id
+                    && !name.is_empty() {
                         queries::create_custom_list(conn, board_id, &name)?;
                     }
-                }
             }
             "rename" => {
                 if let (Some(id), false) = (f.id, name.is_empty()) {
@@ -210,12 +196,9 @@ async fn list_action(State(state): State<AppState>, Form(f): Form<ListForm>) -> 
             _ => {}
         }
         Ok(())
-    });
+    }).with_context(|| format!("list action {:?}", f.action))?;
 
-    if let Err(e) = result {
-        tracing::error!(error = %e, "list action failed");
-    }
-    Redirect::to("/settings").into_response()
+    Ok(Redirect::to("/settings").into_response())
 }
 
 #[derive(Deserialize)]
@@ -227,15 +210,13 @@ struct DisplayForm {
 
 /// App-wide display settings. Deliberately not per-user: two people looking at
 /// the same shared column should not see it in two different orders.
-async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm>) -> Response {
+async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm>) -> AppResult {
     let on = f.move_completed_to_bottom.is_some();
-    if let Err(e) = state
+    state
         .db
         .with(|conn| queries::set_flag(conn, queries::MOVE_COMPLETED, on))
-    {
-        tracing::error!(error = %e, "display setting failed");
-    }
-    Redirect::to("/settings").into_response()
+        .context("saving the move-completed setting")?;
+    Ok(Redirect::to("/settings").into_response())
 }
 
 #[derive(Deserialize)]
@@ -257,7 +238,10 @@ async fn whoami(jar: CookieJar, Form(f): Form<WhoamiForm>) -> impl IntoResponse 
 }
 
 /// Shown when nobody has claimed an identity in this browser yet.
-async fn pick_page(State(state): State<AppState>) -> Response {
-    let users = state.db.with(|conn| queries::users(conn)).unwrap_or_default();
+async fn pick_page(State(state): State<AppState>) -> AppResult {
+    let users = state
+        .db
+        .with(queries::users)
+        .context("loading users for the picker")?;
     render(&state, "pick_user.html", minijinja::context! { users => users })
 }

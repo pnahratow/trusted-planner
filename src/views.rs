@@ -9,6 +9,7 @@
 //! one fragment route for both, and means an empty day can carry an SSE trigger
 //! in phase 6 exactly like a populated one.
 
+use anyhow::{Context, Result};
 use chrono::NaiveDate;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -25,41 +26,44 @@ pub enum ColumnKey {
 
 impl ColumnKey {
     pub fn parse(s: &str) -> Option<Self> {
-        match s.strip_prefix("list-") {
-            Some(id) => id.parse().ok().map(ColumnKey::List),
-            None => calendar::parse(s).map(ColumnKey::Day),
-        }
+        s.strip_prefix("list-").map_or_else(
+            || calendar::parse(s).map(ColumnKey::Day),
+            |id| id.parse().ok().map(ColumnKey::List),
+        )
     }
 
     pub fn as_string(&self) -> String {
         match self {
-            ColumnKey::Day(d) => calendar::fmt(*d),
-            ColumnKey::List(id) => format!("list-{id}"),
+            Self::Day(d) => calendar::fmt(*d),
+            Self::List(id) => format!("list-{id}"),
         }
     }
 
     /// The list row this column stores into, creating a day-list if this is the
     /// first task to land on that date. `None` when a custom list is gone.
-    pub fn resolve_for_write(&self, conn: &Connection, board_id: i64) -> rusqlite::Result<Option<i64>> {
+    pub fn resolve_for_write(&self, conn: &Connection, board_id: i64) -> Result<Option<i64>> {
         match self {
-            ColumnKey::Day(d) => queries::ensure_day_list(conn, board_id, &calendar::fmt(*d)).map(Some),
-            ColumnKey::List(id) => Ok(queries::list(conn, *id)?
+            Self::Day(d) => queries::ensure_day_list(conn, board_id, &calendar::fmt(*d))
+                .map(Some)
+                .with_context(|| format!("creating the day list for {d}")),
+            Self::List(id) => Ok(queries::list(conn, *id)?
                 .filter(|l| l.board_id == board_id)
                 .map(|l| l.id)),
         }
     }
 
     /// The existing list row, if any. Never creates one — reads must not write.
-    pub fn resolve_for_read(&self, conn: &Connection, board_id: i64) -> rusqlite::Result<Option<i64>> {
+    pub fn resolve_for_read(&self, conn: &Connection, board_id: i64) -> Result<Option<i64>> {
         match self {
-            ColumnKey::Day(d) => queries::day_lists_in_range(
+            Self::Day(d) => queries::day_lists_in_range(
                 conn,
                 board_id,
                 &calendar::fmt(*d),
                 &calendar::fmt(*d),
             )
-            .map(|ls| ls.first().map(|l| l.id)),
-            ColumnKey::List(id) => Ok(queries::list(conn, *id)?
+            .map(|ls| ls.first().map(|l| l.id))
+            .with_context(|| format!("looking up the day list for {d}")),
+            Self::List(id) => Ok(queries::list(conn, *id)?
                 .filter(|l| l.board_id == board_id)
                 .map(|l| l.id)),
         }
@@ -101,9 +105,7 @@ pub fn task_view(task: &Task, authors: &[User]) -> TaskView {
         done: task.done,
         version: task.version,
         author_name: author.map(|u| u.name.clone()).unwrap_or_default(),
-        colour: author
-            .map(|u| u.colour.clone())
-            .unwrap_or_else(|| "#9aa3af".into()),
+        colour: author.map_or_else(|| "#9aa3af".into(), |u| u.colour.clone()),
     }
 }
 
@@ -135,8 +137,8 @@ pub fn load_column(
     board_id: i64,
     key: ColumnKey,
     move_completed: bool,
-) -> rusqlite::Result<ColumnView> {
-    let authors = queries::users(conn)?;
+) -> Result<ColumnView> {
+    let authors = queries::users(conn).context("loading task authors")?;
     let list_id = key.resolve_for_read(conn, board_id)?;
     let tasks = match list_id {
         Some(id) => queries::tasks_for_list(conn, id, move_completed)?,
