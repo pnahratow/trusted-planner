@@ -7,6 +7,16 @@
 
   var body = document.body;
 
+  // Identifies this tab so the server can tell it apart from other listeners.
+  var CLIENT_ID =
+    window.crypto && window.crypto.randomUUID
+      ? window.crypto.randomUUID()
+      : String(Date.now()) + "-" + String(Math.random()).slice(2);
+
+  body.addEventListener("htmx:configRequest", function (evt) {
+    evt.detail.headers["X-Client-Id"] = CLIENT_ID;
+  });
+
   // Which add-form (if any) started the request currently in flight. Without
   // this we cannot tell "the column re-rendered under me while I was typing"
   // — where the draft must be put back — from "I just submitted this form",
@@ -152,6 +162,110 @@
     // A swapped-in column is a new node, so re-scan the document as well.
     initSortable(document);
   });
+
+  // Closing an editor can unblock a column that was waiting to catch up — but
+  // only once htmx has finished settling. During `afterSwap` the replaced
+  // element is still momentarily in the document, so a column would still look
+  // busy and the deferred refresh would be skipped.
+  body.addEventListener("htmx:afterSettle", function () {
+    flushStale();
+  });
+
+  // --------------------------------------------------------- live updates
+  //
+  // The server is asked "what changed since sequence N"; the client answers by
+  // re-fetching those columns through the ordinary fragment route. Coarse
+  // invalidations mean the polled path and the fetched path are the same code
+  // and cannot disagree.
+  //
+  // Short polls rather than a held-open stream: see the note at the top of
+  // src/events.rs — an SSE connection per tab exhausts the browser's six
+  // connections per origin and freezes the whole app at five tabs.
+  var POLL_MS = 3000;
+  var live = document.getElementById("live");
+
+  // Only an open editor blocks a refresh. Swapping the column out from under
+  // one would destroy an edit in progress and the version it is checked
+  // against, and no re-render can put that back.
+  //
+  // Typing in the add box is deliberately *not* a blocker: the swap guard
+  // above restores the draft and the caret, so the column stays current
+  // instead of waiting for the person to click elsewhere.
+  function isBusy(col) {
+    return !!col.querySelector(".task-editing");
+  }
+
+  function refreshColumn(col) {
+    if (isBusy(col)) {
+      col.dataset.stale = "1";
+      return;
+    }
+    delete col.dataset.stale;
+    window.htmx.trigger(col, "refresh-column");
+  }
+
+  function flushStale() {
+    var stale = document.querySelectorAll(".column[data-stale]");
+    for (var i = 0; i < stale.length; i++) {
+      if (!isBusy(stale[i])) refreshColumn(stale[i]);
+    }
+  }
+
+  function refreshAllColumns() {
+    var cols = document.querySelectorAll(".column");
+    for (var i = 0; i < cols.length; i++) refreshColumn(cols[i]);
+  }
+
+  if (live) {
+    var seq = Number(live.dataset.seq || 0);
+    var polling = false;
+
+    var poll = function () {
+      // A hidden tab has nobody looking at it; it resyncs when it comes back.
+      if (polling || document.hidden) return;
+      polling = true;
+
+      var url =
+        "/changes?board=" + encodeURIComponent(live.dataset.board) +
+        "&since=" + seq +
+        "&client=" + encodeURIComponent(CLIENT_ID);
+
+      fetch(url, { cache: "no-store" })
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .then(function (data) {
+          if (!data) return;
+          seq = data.seq;
+          if (data.resync) {
+            refreshAllColumns();
+            return;
+          }
+          for (var i = 0; i < data.keys.length; i++) {
+            var col = document.getElementById("col-" + data.keys[i]);
+            // A column that is not on screen (another week) needs nothing.
+            if (col) refreshColumn(col);
+          }
+        })
+        .catch(function () {
+          // Server restarting or the network blinked; the next tick retries.
+        })
+        .then(function () {
+          polling = false;
+        });
+    };
+
+    setInterval(poll, POLL_MS);
+    // Coming back to a tab should feel immediate rather than waiting a tick.
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) poll();
+    });
+  }
+
+  // Closing an editor is the usual moment a deferred column can catch up, and
+  // the swap handler above covers that. This is the safety net: a column must
+  // never sit stale indefinitely because one event did not fire.
+  setInterval(flushStale, 5000);
 
   body.addEventListener("htmx:afterRequest", function (evt) {
     submittedKey = null;

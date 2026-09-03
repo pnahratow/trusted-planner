@@ -6,6 +6,7 @@
 mod calendar;
 mod db;
 mod error;
+mod events;
 mod models;
 mod queries;
 mod routes;
@@ -21,6 +22,7 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::db::Db;
+use crate::events::ChangeLog;
 use crate::templates::Templates;
 
 /// Everything a handler needs, cloned cheaply per request.
@@ -28,6 +30,8 @@ use crate::templates::Templates;
 pub struct AppState {
     pub db: Arc<Db>,
     pub tmpl: Templates,
+    /// Column invalidations, polled by connected browsers.
+    pub changes: Arc<ChangeLog>,
 }
 
 /// Runtime configuration, all overridable from the environment so the same
@@ -85,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         db,
         tmpl: Templates::new(&cfg.template_dir),
+        changes: Arc::new(ChangeLog::new()),
     };
 
     let app = Router::new()

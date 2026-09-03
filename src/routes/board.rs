@@ -144,6 +144,9 @@ async fn week(
             // column.html is included here and rendered standalone by the
             // fragment route; both must supply the same names.
             board_id => board.id,
+            // The sequence this page reflects; polling resumes from here so a
+            // change committed between render and first poll is not missed.
+            change_seq => state.changes.current_seq(),
             boards => all_boards,
             days => days,
             lists => lists,

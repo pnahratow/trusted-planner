@@ -48,7 +48,26 @@ The rendered page is checked in a real browser (headless Chromium over the
 DevTools protocol) rather than only with `curl`, because a template that renders
 a hole still returns 200 to a request that never looks at the markup.
 
+## Live updates
+
+Other people's edits appear within a few seconds. The client asks
+`/changes?board=N&since=<seq>` on a short poll and re-fetches only the columns
+that actually changed.
+
+This deliberately is **not** server-sent events, though it was at first. A
+browser allows six concurrent connections per origin over HTTP/1.1, and an SSE
+stream holds one open for its lifetime — so at five open tabs the sixth
+connection is the last one and every further request queues forever, freezing
+the app. HTTP/2 would fix it, but browsers only negotiate that over TLS and v1
+is plain HTTP on the LAN. Short polls hold nothing open, cannot exhaust the
+pool, and survive a buffering proxy. Verified working with ten tabs open.
+
+A column holding an open editor defers its refresh until the editor closes;
+re-rendering it would destroy the edit and the version it is checked against.
+Typing in the "add task" box does not defer, because the draft and caret are
+restored across the swap.
+
 ## Status
 
-Phases 1–5 of the plan are done: skeleton, settings, week grid, task CRUD,
-drag & drop. Live updates, month view, polish and packaging follow.
+Phases 1–6 of the plan are done: skeleton, settings, week grid, task CRUD,
+drag & drop, live updates. Month view, polish and packaging follow.
