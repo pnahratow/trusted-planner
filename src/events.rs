@@ -138,7 +138,7 @@ mod tests {
         let out = log.since(1, 0, None);
         assert!(!out.resync, "an empty log is not a gap");
         assert_eq!(out.seq, 0);
-        assert!(out.keys.is_empty());
+        assert_eq!(out.keys, Vec::<String>::new());
     }
 
     #[test]
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(first.keys.len(), 1);
 
         // Nothing new since.
-        assert!(log.since(1, first.seq, None).keys.is_empty());
+        assert_eq!(log.since(1, first.seq, None).keys, Vec::<String>::new());
 
         log.record(1, &day("2026-09-05"), None);
         assert_eq!(log.since(1, first.seq, None).keys, ["2026-09-05"]);
