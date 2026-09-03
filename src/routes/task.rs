@@ -9,7 +9,7 @@ use axum_extra::extract::Form;
 use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
-use crate::routes::{current_user, render};
+use crate::routes::{current_user, move_completed, render};
 use crate::routes::board::render_column;
 use crate::views::{self, ColumnKey};
 use crate::{queries, AppState};
@@ -89,11 +89,11 @@ async fn create(
         }
     }
 
-    render_column(&state, board_id, key, me.move_completed_to_bottom)
+    render_column(&state, board_id, key, move_completed(&state))
 }
 
-async fn toggle(State(state): State<AppState>, jar: CookieJar, Path(id): Path<i64>) -> Response {
-    let move_completed = current_user(&state, &jar).is_none_or(|u| u.move_completed_to_bottom);
+async fn toggle(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    let move_completed = move_completed(&state);
     match column_of(&state, id) {
         Ok(Some((board_id, key))) => {
             if let Err(e) = state.db.with(|conn| queries::toggle_task(conn, id)) {
@@ -106,8 +106,8 @@ async fn toggle(State(state): State<AppState>, jar: CookieJar, Path(id): Path<i6
     }
 }
 
-async fn delete(State(state): State<AppState>, jar: CookieJar, Path(id): Path<i64>) -> Response {
-    let move_completed = current_user(&state, &jar).is_none_or(|u| u.move_completed_to_bottom);
+async fn delete(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    let move_completed = move_completed(&state);
     match column_of(&state, id) {
         Ok(Some((board_id, key))) => {
             // Two writes (the tombstone and the renumbering) must land together.
@@ -167,11 +167,10 @@ struct UpdateForm {
 /// and there is no merge dialog (D12).
 async fn update(
     State(state): State<AppState>,
-    jar: CookieJar,
     Path(id): Path<i64>,
     Form(f): Form<UpdateForm>,
 ) -> Response {
-    let move_completed = current_user(&state, &jar).is_none_or(|u| u.move_completed_to_bottom);
+    let move_completed = move_completed(&state);
     let title = f.title.trim().to_string();
     if title.is_empty() {
         return bad("title cannot be empty");
@@ -244,11 +243,10 @@ struct MoveForm {
 /// the endpoint lands now and the drag layer is purely additive.
 async fn move_task(
     State(state): State<AppState>,
-    jar: CookieJar,
     Path(id): Path<i64>,
     Form(f): Form<MoveForm>,
 ) -> Response {
-    let move_completed = current_user(&state, &jar).is_none_or(|u| u.move_completed_to_bottom);
+    let move_completed = move_completed(&state);
     let Some(dest) = ColumnKey::parse(&f.key) else {
         return bad("bad column key");
     };

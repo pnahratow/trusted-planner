@@ -18,8 +18,11 @@
     {% endfor %}
   </ul>
 
-  <form class="add-task"
+  {# queue all: typing two tasks in quick succession must add both, rather than
+     the second request cancelling the first in flight. #}
+  <form class="add-task" id="add-{{ col.key }}" hx-preserve="true"
         hx-post="/b/{{ board_id }}/task"
+        hx-sync="this:queue all"
         hx-target="closest .column" hx-swap="outerHTML">
     <input type="hidden" name="key" value="{{ col.key }}">
     <input class="add-input" type="text" name="title" placeholder="+ Add task"

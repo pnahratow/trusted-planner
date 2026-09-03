@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/settings/user", post(user_action))
         .route("/settings/board", post(board_action))
         .route("/settings/list", post(list_action))
+        .route("/settings/display", post(display_action))
         .route("/whoami", post(whoami))
         .route("/pick", get(pick_page))
 }
@@ -36,6 +37,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> Response {
     let data = state.db.with(|conn| {
         let users = queries::users(conn)?;
         let boards = queries::boards(conn)?;
+        let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
         let mut board_rows = Vec::new();
         for b in &boards {
             let members = queries::board_member_ids(conn, b.id)?;
@@ -47,10 +49,10 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> Response {
                 lists => lists,
             });
         }
-        Ok((users, board_rows))
+        Ok((users, board_rows, move_completed))
     });
 
-    let (users, boards) = match data {
+    let (users, boards, move_completed) = match data {
         Ok(v) => v,
         Err(e) => {
             tracing::error!(error = %e, "settings load failed");
@@ -66,6 +68,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> Response {
             users => users,
             boards => boards,
             palette => PALETTE,
+            move_completed => move_completed,
             me => me,
             theme => me.as_ref().map(|u| u.theme.clone()).unwrap_or_else(|| "system".into()),
         },
@@ -83,9 +86,6 @@ struct UserForm {
     colour: String,
     #[serde(default)]
     theme: Option<String>,
-    /// Absent when the checkbox is unticked — HTML forms omit rather than send false.
-    #[serde(default)]
-    move_completed_to_bottom: Option<String>,
 }
 
 async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> Response {
@@ -111,7 +111,6 @@ async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> 
                             &name,
                             &f.colour,
                             f.theme.as_deref().unwrap_or("system"),
-                            f.move_completed_to_bottom.is_some(),
                         )?;
                     }
                 }
@@ -215,6 +214,26 @@ async fn list_action(State(state): State<AppState>, Form(f): Form<ListForm>) -> 
 
     if let Err(e) = result {
         tracing::error!(error = %e, "list action failed");
+    }
+    Redirect::to("/settings").into_response()
+}
+
+#[derive(Deserialize)]
+struct DisplayForm {
+    /// Absent when the checkbox is unticked — HTML forms omit rather than send false.
+    #[serde(default)]
+    move_completed_to_bottom: Option<String>,
+}
+
+/// App-wide display settings. Deliberately not per-user: two people looking at
+/// the same shared column should not see it in two different orders.
+async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm>) -> Response {
+    let on = f.move_completed_to_bottom.is_some();
+    if let Err(e) = state
+        .db
+        .with(|conn| queries::set_flag(conn, queries::MOVE_COMPLETED, on))
+    {
+        tracing::error!(error = %e, "display setting failed");
     }
     Redirect::to("/settings").into_response()
 }

@@ -11,7 +11,6 @@ pub struct User {
     pub name: String,
     pub colour: String,
     pub theme: String,
-    pub move_completed_to_bottom: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

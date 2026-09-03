@@ -7,7 +7,7 @@ use axum::Router;
 use axum_extra::extract::CookieJar;
 
 use crate::calendar;
-use crate::routes::{current_user, render};
+use crate::routes::{current_user, move_completed, render};
 use crate::views::{self, ColumnKey};
 use crate::{queries, AppState};
 
@@ -55,7 +55,7 @@ async fn week(
     };
 
     let dates = calendar::week_of(monday);
-    let move_completed = me.move_completed_to_bottom;
+    let move_completed = move_completed(&state);
 
     let loaded = state.db.with(|conn| {
         let Some(board) = queries::board(conn, board_id)? else {
@@ -121,6 +121,9 @@ async fn week(
             me => me,
             users => users,
             board => board,
+            // column.html is included here and rendered standalone by the
+            // fragment route; both must supply the same names.
+            board_id => board.id,
             boards => all_boards,
             days => days,
             lists => lists,
@@ -143,14 +146,12 @@ async fn week(
 /// disagree.
 async fn column_fragment(
     State(state): State<AppState>,
-    jar: CookieJar,
     Path((board_id, key)): Path<(i64, String)>,
 ) -> Response {
     let Some(key) = ColumnKey::parse(&key) else {
         return (axum::http::StatusCode::BAD_REQUEST, "bad column key\n").into_response();
     };
-    let move_completed = current_user(&state, &jar).is_none_or(|u| u.move_completed_to_bottom);
-    render_column(&state, board_id, key, move_completed)
+    render_column(&state, board_id, key, move_completed(&state))
 }
 
 /// Shared by the fragment route and every mutation handler.

@@ -10,9 +10,35 @@ fn now() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
+// --------------------------------------------------------- app settings
+
+/// App-wide display settings, stored as strings so adding one later needs no
+/// migration of shape — only a new key.
+pub const MOVE_COMPLETED: &str = "move_completed_to_bottom";
+
+pub fn get_flag(conn: &Connection, key: &str, default: bool) -> Result<bool> {
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(raw.map_or(default, |v| v == "1"))
+}
+
+pub fn set_flag(conn: &Connection, key: &str, value: bool) -> Result<()> {
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, if value { "1" } else { "0" }],
+    )?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------- users
 
-const USER_COLS: &str = "id, name, colour, theme, move_completed_to_bottom";
+const USER_COLS: &str = "id, name, colour, theme";
 
 fn map_user(row: &rusqlite::Row<'_>) -> Result<User> {
     Ok(User {
@@ -20,7 +46,6 @@ fn map_user(row: &rusqlite::Row<'_>) -> Result<User> {
         name: row.get(1)?,
         colour: row.get(2)?,
         theme: row.get(3)?,
-        move_completed_to_bottom: row.get(4)?,
     })
 }
 
@@ -42,18 +67,10 @@ pub fn create_user(conn: &Connection, name: &str, colour: &str) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
-pub fn update_user(
-    conn: &Connection,
-    id: i64,
-    name: &str,
-    colour: &str,
-    theme: &str,
-    move_completed: bool,
-) -> Result<()> {
+pub fn update_user(conn: &Connection, id: i64, name: &str, colour: &str, theme: &str) -> Result<()> {
     conn.execute(
-        "UPDATE users SET name = ?2, colour = ?3, theme = ?4, move_completed_to_bottom = ?5
-         WHERE id = ?1",
-        params![id, name, colour, theme, move_completed],
+        "UPDATE users SET name = ?2, colour = ?3, theme = ?4 WHERE id = ?1",
+        params![id, name, colour, theme],
     )?;
     Ok(())
 }
@@ -426,7 +443,10 @@ mod tests {
     /// A board with two lists and a known author, in memory.
     fn fixture() -> (Connection, i64, i64, i64) {
         let conn = Connection::open_in_memory().unwrap();
+        // Every migration, so tests see the same schema production does.
         conn.execute_batch(include_str!("../migrations/001_init.sql"))
+            .unwrap();
+        conn.execute_batch(include_str!("../migrations/002_global_settings.sql"))
             .unwrap();
         let author = create_user(&conn, "Tester", "#3563e9").unwrap();
         let board = create_board(&conn, "Board").unwrap();
@@ -645,6 +665,25 @@ mod tests {
             ensure_day_list(&conn, b2, "2026-09-03").unwrap(),
             "the unique index is per board, not global"
         );
+    }
+
+    #[test]
+    fn move_completed_defaults_on_and_round_trips() {
+        let (conn, _, _, _) = fixture();
+        assert!(get_flag(&conn, MOVE_COMPLETED, true).unwrap(), "seeded on");
+
+        set_flag(&conn, MOVE_COMPLETED, false).unwrap();
+        assert!(!get_flag(&conn, MOVE_COMPLETED, true).unwrap());
+
+        set_flag(&conn, MOVE_COMPLETED, true).unwrap();
+        assert!(get_flag(&conn, MOVE_COMPLETED, true).unwrap(), "upsert, not a duplicate row");
+    }
+
+    #[test]
+    fn an_unknown_flag_falls_back_to_its_default() {
+        let (conn, _, _, _) = fixture();
+        assert!(get_flag(&conn, "never_set", true).unwrap());
+        assert!(!get_flag(&conn, "never_set", false).unwrap());
     }
 
     #[test]

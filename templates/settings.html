@@ -25,11 +25,6 @@
             <option value="{{ t }}" {% if t == u.theme %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>
-        <label class="inline-check">
-          <input type="checkbox" name="move_completed_to_bottom"
-                 {% if u.move_completed_to_bottom %}checked{% endif %}>
-          done last
-        </label>
         <button type="submit" class="btn-primary">Save</button>
       </form>
       <form method="post" action="/settings/user" class="inline-form">
@@ -117,6 +112,21 @@
       {% endfor %}
     </span>
     <button type="submit" class="btn-primary">Add board</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Display</h2>
+  <p class="muted">Applies to everyone. Ordering belongs to the column, not to
+     the person reading it — two people looking at the same shared list should
+     not see it in two different orders.</p>
+  <form method="post" action="/settings/display" class="row-form">
+    <label class="inline-check">
+      <input type="checkbox" name="move_completed_to_bottom"
+             {% if move_completed %}checked{% endif %}>
+      Move completed tasks to the bottom
+    </label>
+    <button type="submit" class="btn-primary">Save</button>
   </form>
 </section>
 

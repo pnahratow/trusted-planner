@@ -28,6 +28,15 @@ pub fn current_user(state: &AppState, jar: &CookieJar) -> Option<User> {
     state.db.with(|conn| crate::queries::user(conn, id)).ok()?
 }
 
+/// The app-wide "completed tasks sink to the bottom" setting. Ordering is a
+/// property of the column, not of the reader, so everyone sees it the same way.
+pub fn move_completed(state: &AppState) -> bool {
+    state
+        .db
+        .with(|conn| crate::queries::get_flag(conn, crate::queries::MOVE_COMPLETED, true))
+        .unwrap_or(true)
+}
+
 /// Renders a template or turns the error into a 500 — templates are edited live,
 /// so a typo in one must not take the process down.
 pub fn render<S: serde::Serialize>(

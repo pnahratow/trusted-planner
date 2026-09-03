@@ -10,7 +10,10 @@ use rusqlite::Connection;
 
 /// Migrations are embedded so the binary is self-contained; the on-disk
 /// `migrations/` dir is the source of truth at build time only.
-const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("../migrations/001_init.sql"))];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, include_str!("../migrations/001_init.sql")),
+    (2, include_str!("../migrations/002_global_settings.sql")),
+];
 
 pub struct Db {
     conn: Mutex<Connection>,

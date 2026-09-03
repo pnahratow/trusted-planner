@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use minijinja::{Environment, path_loader};
+use minijinja::{Environment, UndefinedBehavior, path_loader};
 
 #[derive(Clone)]
 pub struct Templates {
@@ -28,6 +28,11 @@ impl Templates {
         ctx: S,
     ) -> Result<String, minijinja::Error> {
         let mut env = Environment::new();
+        // Strict: a name the context does not supply is an error, not a silent
+        // empty string. A missing `board_id` once rendered `hx-post="/b//task"`
+        // in the week grid — a live 400 that every offline test still passed,
+        // because the fragment route did supply the name. Fail loudly instead.
+        env.set_undefined_behavior(UndefinedBehavior::Strict);
         env.set_loader(path_loader(&self.dir));
         env.get_template(name)?.render(ctx)
     }
