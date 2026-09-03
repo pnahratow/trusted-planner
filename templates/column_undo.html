@@ -1,0 +1,13 @@
+{# The column, plus an out-of-band update to the undo bar. Only delete and
+   restore render this: an ordinary refresh must not touch the bar, or a poll
+   landing a second after a delete would clear the undo before it was used. #}
+{% include "column.html" %}
+
+<div id="undo-bar" class="undo-bar" hx-swap-oob="true">
+  {% if undo_id %}
+  <span class="undo-text">Deleted &ldquo;{{ undo_title }}&rdquo;</span>
+  <button type="button" class="undo-btn"
+          hx-post="/task/{{ undo_id }}/restore"
+          hx-target="#col-{{ col.key }}" hx-swap="outerHTML">Undo</button>
+  {% endif %}
+</div>

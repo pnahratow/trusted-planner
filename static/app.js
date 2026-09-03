@@ -61,6 +61,24 @@
     }
   });
 
+  // --------------------------------------------------------------- undo
+  //
+  // A delete fills the bar out of band; this clears it again after a while so
+  // it does not sit there for the rest of the session. Undoing empties it too,
+  // through the same out-of-band swap.
+  var UNDO_MS = 9000;
+  var undoTimer = null;
+
+  body.addEventListener("htmx:afterSwap", function (evt) {
+    if (!evt.target || evt.target.id !== "undo-bar") return;
+    clearTimeout(undoTimer);
+    if (!evt.target.children.length) return; // an undo just emptied it
+    undoTimer = setTimeout(function () {
+      var bar = document.getElementById("undo-bar");
+      if (bar) bar.innerHTML = "";
+    }, UNDO_MS);
+  });
+
   // -------------------------------------------------- click away to cancel
   //
   // An open editor is dismissed by clicking anything that is not part of it,

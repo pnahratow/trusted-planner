@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::error::AppResult;
 use crate::routes::board::render_column;
-use crate::routes::{current_user, move_completed, render, Density};
+use crate::routes::{current_user, render, Density};
 use crate::views::{self, ColumnKey};
 use crate::{queries, AppState};
 
@@ -23,6 +23,7 @@ pub fn router() -> Router<AppState> {
         .route("/task/{id}/row", get(row_fragment))
         .route("/task/{id}", post(update))
         .route("/task/{id}/delete", post(delete))
+        .route("/task/{id}/restore", post(restore))
         .route("/task/{id}/move", post(move_task))
 }
 
@@ -93,7 +94,7 @@ async fn create(
         state.changes.record(board_id, &key);
     }
 
-    render_column(&state, board_id, key, move_completed(&state)?, density)
+    render_column(&state, board_id, key, density)
 }
 
 /// The three single-task mutations differ only in the statement they run, so
@@ -113,7 +114,7 @@ fn mutate_in_place(
         .with(run)
         .with_context(|| format!("{what} task {id}"))?;
     state.changes.record(board_id, &key);
-    render_column(state, board_id, key, move_completed(state)?, density)
+    render_column(state, board_id, key, density)
 }
 
 async fn toggle(
@@ -126,6 +127,9 @@ async fn toggle(
     })
 }
 
+/// Deleting does not ask first. A confirmation dialog interrupts the common
+/// case (you meant it) to guard against the rare one, and the rare one is
+/// already covered: the row is soft-deleted, so putting it back is exact.
 async fn delete(
     State(state): State<AppState>,
     Density(density): Density,
@@ -134,13 +138,88 @@ async fn delete(
     let Some((board_id, key)) = column_of(&state, id)? else {
         return Ok(bad("no such task"));
     };
+    let title = state
+        .db
+        .with(|conn| queries::task(conn, id))
+        .with_context(|| format!("reading task {id} before deleting it"))?
+        .map(|t| t.title)
+        .unwrap_or_default();
+
     // Two writes (the tombstone and the renumbering) must land together.
     state
         .db
         .transaction(|tx| queries::delete_task(tx, id))
         .with_context(|| format!("deleting task {id}"))?;
     state.changes.record(board_id, &key);
-    render_column(&state, board_id, key, move_completed(&state)?, density)
+
+    render_column_with_undo(&state, board_id, key, density, Some((id, title)))
+}
+
+async fn restore(
+    State(state): State<AppState>,
+    Density(density): Density,
+    Path(id): Path<i64>,
+) -> AppResult {
+    let restored = state
+        .db
+        .transaction(|tx| -> anyhow::Result<_> {
+            let Some(task) = queries::task_any(tx, id)? else {
+                return Ok(None);
+            };
+            let Some(list) = queries::list(tx, task.list_id)? else {
+                return Ok(None);
+            };
+            queries::restore_task(tx, id)?;
+            let key = match &list.date {
+                Some(d) => crate::calendar::parse(d).map(ColumnKey::Day),
+                None => Some(ColumnKey::List(list.id)),
+            };
+            Ok(key.map(|k| (list.board_id, k)))
+        })
+        .with_context(|| format!("restoring task {id}"))?;
+
+    let Some((board_id, key)) = restored else {
+        return Ok(bad("no such task"));
+    };
+    state.changes.record(board_id, &key);
+
+    // `None` re-renders the undo bar empty, which dismisses it.
+    render_column_with_undo(&state, board_id, key, density, None)
+}
+
+/// The column, plus an out-of-band update to the undo bar.
+///
+/// Only delete and restore use this. An ordinary column refresh must not touch
+/// the bar, or a background poll landing a second after a delete would clear
+/// the undo before it could be used.
+fn render_column_with_undo(
+    state: &AppState,
+    board_id: i64,
+    key: ColumnKey,
+    page_density: &str,
+    undo: Option<(i64, String)>,
+) -> AppResult {
+    let density = crate::views::density_for(key, page_density);
+    let (col, show_colour) = state
+        .db
+        .with(|conn| -> anyhow::Result<_> {
+            let show_colour = queries::board_member_count(conn, board_id)? > 1;
+            let col = views::load_column(conn, board_id, key, density)?;
+            Ok((col, show_colour))
+        })
+        .with_context(|| format!("re-rendering column {}", key.as_string()))?;
+
+    render(
+        state,
+        "column_undo.html",
+        minijinja::context! {
+            col => col,
+            board_id => board_id,
+            show_colour => show_colour,
+            undo_id => undo.as_ref().map(|(id, _)| *id),
+            undo_title => undo.map(|(_, title)| title),
+        },
+    )
 }
 
 /// Swaps the row for an editor. The version rendered here is the one the save
@@ -334,7 +413,7 @@ async fn move_task(
 
     // The source column changed too when the task left it; the client refetches
     // it via the out-of-band header rather than us guessing at swap targets.
-    let mut resp = render_column(&state, board_id, dest, move_completed(&state)?, density)?;
+    let mut resp = render_column(&state, board_id, dest, density)?;
     if origin_col != dest
         && let Ok(v) = axum::http::HeaderValue::from_str(&origin_col.as_string())
     {

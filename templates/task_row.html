@@ -21,10 +21,11 @@
     {% if task.notes %}<span class="has-notes" aria-label="has notes">&#9998;</span>{% endif %}
   </button>
 
+  {# No confirmation dialog: it interrupts the common case to guard the rare
+     one, and the rare one is covered by the undo bar. #}
   <form class="task-delete"
         hx-post="/task/{{ task.id }}/delete"
-        hx-target="closest .column" hx-swap="outerHTML"
-        hx-confirm="Delete “{{ task.title }}”?">
+        hx-target="closest .column" hx-swap="outerHTML">
     <button type="submit" class="icon-btn" aria-label="Delete task">&times;</button>
   </form>
 </li>

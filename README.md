@@ -80,6 +80,14 @@ some months and 42 others, so rows reflow and change height as you page through
 it; 4x7 never does. A cell that runs out of room shows "+N more", which opens
 that day in full — the same column partial, so it behaves the same inside.
 
+## Deleting
+
+There is no "are you sure". Deleting removes the row and offers **Undo** in a
+bar at the bottom for a few seconds; the row is soft-deleted, so undo restores
+it to exactly the position it held. A confirmation dialog would interrupt every
+deliberate delete to guard against the occasional slip — this way round, only
+the slip pays.
+
 ## Status
 
 Phases 1–7 of the plan are done: skeleton, settings, week grid, task CRUD,

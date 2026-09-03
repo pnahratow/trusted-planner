@@ -138,7 +138,7 @@ textarea { resize: vertical; width: 100%; }
 .col-sub { color: var(--muted); font-size: 0.85em; }
 
 .tasks { list-style: none; margin: 0; padding: 4px; flex: 1; }
-.empty { color: var(--muted); padding: 6px; font-size: 0.9em; }
+
 
 .task {
   display: flex; align-items: flex-start; gap: 4px;
@@ -174,12 +174,22 @@ textarea { resize: vertical; width: 100%; }
 .task:hover .icon-btn, .icon-btn:focus { opacity: 1; }
 .icon-btn:hover { color: #e0533d; }
 
-.add-task { border-top: 1px solid var(--border); }
+/* Deliberately quiet: it is the empty slot at the end of the list, not a
+   call to action repeated seven times across the screen. */
+.add-task { border-top: 1px solid transparent; }
 .add-input {
-  width: 100%; border: 0; border-radius: 0;
-  background: transparent; padding: 8px 10px;
+  width: 100%; border: 0; border-radius: 6px;
+  background: transparent; padding: 6px 8px;
+  color: var(--text);
 }
-.add-input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.add-input::placeholder { color: var(--muted); opacity: 0.5; }
+.add-input:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.add-input:hover::placeholder { opacity: 0.9; }
+.add-input:focus {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  outline: none;
+}
+.add-input:focus::placeholder { opacity: 0; }
 
 /* -------------------------------------------------------------- editing */
 
@@ -300,7 +310,6 @@ textarea { resize: vertical; width: 100%; }
 .column.is-compact .tasks { padding: 2px; }
 .column.is-compact .task { font-size: 0.88em; }
 .column.is-compact .task-title { padding: 1px 2px; }
-.column.is-compact .empty { display: none; }
 .column.is-compact .add-input { padding: 4px 8px; font-size: 0.88em; }
 .column.is-today .col-heading { color: var(--accent); font-weight: 700; }
 
@@ -349,3 +358,29 @@ textarea { resize: vertical; width: 100%; }
 .panel-head h2 { margin: 0; font-size: 1rem; }
 .panel-close { opacity: 1; font-size: 20px; }
 .panel-card .column { border: 0; border-radius: 0; overflow-y: auto; }
+
+/* ------------------------------------------------------------- undo bar */
+
+/* Empty means gone, so the bar carries no state of its own. */
+.undo-bar:empty { display: none; }
+.undo-bar {
+  position: fixed;
+  left: 50%; bottom: 20px;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  padding: 9px 12px 9px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  z-index: 20;
+  max-width: calc(100vw - 32px);
+}
+.undo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undo-btn {
+  font: inherit; font-weight: 600; cursor: pointer;
+  border: 0; border-radius: 999px;
+  padding: 4px 12px;
+  background: var(--accent); color: #fff;
+}
+.undo-btn:hover { filter: brightness(1.08); }

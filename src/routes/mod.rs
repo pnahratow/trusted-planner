@@ -74,15 +74,6 @@ pub fn current_user(state: &AppState, jar: &CookieJar) -> Result<Option<User>> {
         .with_context(|| format!("loading the signed-in user {id}"))
 }
 
-/// The app-wide "completed tasks sink to the bottom" setting. Ordering is a
-/// property of the column, not of the reader, so everyone sees it the same way.
-pub fn move_completed(state: &AppState) -> Result<bool> {
-    state
-        .db
-        .with(|conn| crate::queries::get_flag(conn, crate::queries::MOVE_COMPLETED, true))
-        .context("reading the move-completed setting")
-}
-
 /// Renders a template. Templates are read from disk at render time and run
 /// under strict-undefined, so a typo or a missing context name surfaces here
 /// as a 500 with the template named, rather than taking the process down or

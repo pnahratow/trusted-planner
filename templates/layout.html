@@ -19,5 +19,9 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+
+  {# Filled out-of-band by a delete, emptied by an undo or after a few seconds.
+     Hidden by CSS while empty, so it needs no state of its own. #}
+  <div id="undo-bar" class="undo-bar"></div>
 </body>
 </html>

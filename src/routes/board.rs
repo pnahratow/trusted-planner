@@ -8,9 +8,8 @@ use axum::Router;
 use axum_extra::extract::CookieJar;
 
 use crate::calendar;
-use chrono::Datelike;
 use crate::error::AppResult;
-use crate::routes::{current_user, move_completed, render};
+use crate::routes::{current_user, render};
 use crate::views::{self, density_for, ColumnKey, COMPACT, FULL};
 use serde::Deserialize;
 use crate::{queries, AppState};
@@ -74,9 +73,9 @@ fn load_grid(
     dates: &[chrono::NaiveDate],
     label: impl Fn(chrono::NaiveDate) -> (String, String),
     page_density: &str,
-    move_completed: bool,
 ) -> anyhow::Result<Option<Grid>> {
     state.db.with(|conn| {
+        let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
         let Some(board) = queries::board(conn, board_id)? else {
             return Ok(None);
         };
@@ -150,11 +149,14 @@ async fn week(
     let Some(me) = current_user(&state, &jar)? else {
         return Ok(Redirect::to("/pick").into_response());
     };
-    let Some(monday) = calendar::parse(&monday).map(calendar::monday_of) else {
+    // Deliberately not snapped to a Monday. The arrows step a day at a time,
+    // which only means anything if the window can start anywhere; "Today"
+    // returns to the tidy Monday-aligned week.
+    let Some(start) = calendar::parse(&monday) else {
         return Ok(Redirect::to("/").into_response());
     };
 
-    let dates = calendar::week_of(monday);
+    let dates = calendar::week_of(start);
     let grid = load_grid(
         &state,
         board_id,
@@ -166,9 +168,8 @@ async fn week(
             )
         },
         FULL, // a week column has the height of the screen; nothing is hidden
-        move_completed(&state)?,
     )
-    .with_context(|| format!("loading board {board_id} for the week of {monday}"))?;
+    .with_context(|| format!("loading board {board_id} for the week from {start}"))?;
 
     let Some(grid) = grid else {
         return Ok(Redirect::to("/").into_response());
@@ -194,13 +195,17 @@ async fn week(
             show_colour => grid.show_colour,
             // Both grids share one topbar partial, so every link it needs is
             // built here rather than assembled in the template.
-            self_url => format!("/b/{board_id}/w/{}", calendar::fmt(monday)),
-            prev_url => format!("/b/{board_id}/w/{}", calendar::fmt(monday - chrono::Duration::days(7))),
-            next_url => format!("/b/{board_id}/w/{}", calendar::fmt(monday + chrono::Duration::days(7))),
+            self_url => format!("/b/{board_id}/w/{}", calendar::fmt(start)),
+            // One day at a time, so you can slide the window onto whatever
+            // stretch you are actually planning.
+            prev_url => format!("/b/{board_id}/w/{}", calendar::fmt(start - chrono::Duration::days(1))),
+            next_url => format!("/b/{board_id}/w/{}", calendar::fmt(start + chrono::Duration::days(1))),
             today_url => format!("/b/{board_id}/w/{}", calendar::fmt(calendar::monday_of(calendar::today()))),
-            switch_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday)),
+            // The four-week grid must start on a Monday for its rows to line
+            // up, so switching snaps to the Monday of the week you are on.
+            switch_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(start))),
             switch_label => "4 weeks",
-            board_path => format!("/w/{}", calendar::fmt(monday)),
+            board_path => format!("/w/{}", calendar::fmt(start)),
             range_label => format!(
                 "{} – {}",
                 dates[0].format("%-d %b"),
@@ -233,18 +238,10 @@ async fn four_weeks(
         &state,
         board_id,
         &dates,
-        // A cell is headed by its day number. The month is added on the 1st,
-        // which is the only place four weeks of numbers would be ambiguous.
-        |d| {
-            let month = if d.day() == 1 {
-                d.format("%b").to_string()
-            } else {
-                String::new()
-            };
-            (d.format("%-d").to_string(), month)
-        },
+        // Day number plus month, always: four weeks can span three months, and
+        // a bare number does not say which one you are looking at.
+        |d| (d.format("%-d").to_string(), d.format("%b").to_string()),
         COMPACT,
-        move_completed(&state)?,
     )
     .with_context(|| format!("loading board {board_id} for four weeks from {monday}"))?;
 
@@ -252,7 +249,9 @@ async fn four_weeks(
         return Ok(Redirect::to("/").into_response());
     };
 
-    let span = chrono::Duration::days(calendar::VIEW_WEEKS * 7);
+    // A week at a time: the grid has to start on a Monday for its rows to line
+    // up, and stepping by a single week is the finest move that preserves that.
+    let step = chrono::Duration::days(7);
     let last = *dates.last().expect("four weeks is never empty");
 
     render(
@@ -271,8 +270,8 @@ async fn four_weeks(
             show_colour => grid.show_colour,
             weekday_names => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
             self_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday)),
-            prev_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday - span)),
-            next_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday + span)),
+            prev_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday - step)),
+            next_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday + step)),
             today_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(calendar::today()))),
             switch_url => format!("/b/{board_id}/w/{}", calendar::fmt(monday)),
             switch_label => "Week",
@@ -303,7 +302,7 @@ async fn column_fragment(
         return Ok((axum::http::StatusCode::BAD_REQUEST, "bad column key\n").into_response());
     };
     let page = if q.density.as_deref() == Some(COMPACT) { COMPACT } else { FULL };
-    render_column(&state, board_id, key, move_completed(&state)?, page)
+    render_column(&state, board_id, key, page)
 }
 
 /// One day in full, opened from a month cell's "+N more". Deliberately the
@@ -318,16 +317,11 @@ async fn day_panel(
     };
     let key = ColumnKey::Day(date);
 
-    // Read the setting *before* taking the connection: `move_completed` opens
-    // its own `db.with`, and the mutex guarding the single connection is not
-    // reentrant, so calling it inside the closure deadlocks the whole process.
-    let move_completed = move_completed(&state)?;
-
     let (col, show_colour) = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             let show_colour = queries::board_member_count(conn, board_id)? > 1;
-            let col = views::load_column(conn, board_id, key, move_completed, FULL)?;
+            let col = views::load_column(conn, board_id, key, FULL)?;
             Ok((col, show_colour))
         })
         .with_context(|| format!("loading the day panel for {date}"))?;
@@ -352,7 +346,6 @@ pub fn render_column(
     state: &AppState,
     board_id: i64,
     key: ColumnKey,
-    move_completed: bool,
     page_density: &str,
 ) -> AppResult {
     let density = density_for(key, page_density);
@@ -360,7 +353,7 @@ pub fn render_column(
         .db
         .with(|conn| -> anyhow::Result<_> {
             let show_colour = queries::board_member_count(conn, board_id)? > 1;
-            let col = views::load_column(conn, board_id, key, move_completed, density)?;
+            let col = views::load_column(conn, board_id, key, density)?;
             Ok((col, show_colour))
         })
         .with_context(|| format!("loading column {} of board {board_id}", key.as_string()))?;

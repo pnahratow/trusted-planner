@@ -171,14 +171,21 @@ pub fn column_view(
 }
 
 /// Loads a single column by key — the fragment path used by every mutation
-/// response and, in phase 6, by SSE-triggered refetches.
+/// response and by the polled refresh.
+///
+/// Reads the move-completed setting from the connection it was handed rather
+/// than taking it as an argument. That is not a convenience: the mutex around
+/// the single connection is not reentrant, so a caller fetching the setting
+/// while already inside `Db::with` deadlocks the process. Taking it here means
+/// there is nothing to get wrong.
 pub fn load_column(
     conn: &Connection,
     board_id: i64,
     key: ColumnKey,
-    move_completed: bool,
     density: &'static str,
 ) -> Result<ColumnView> {
+    let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)
+        .context("reading the move-completed setting")?;
     let authors = queries::users(conn).context("loading task authors")?;
     let list_id = key.resolve_for_read(conn, board_id)?;
     let tasks = match list_id {

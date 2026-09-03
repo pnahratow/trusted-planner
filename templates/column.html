@@ -13,8 +13,6 @@
   <ul class="tasks">
     {% for task in col.tasks %}
       {% include "task_row.html" %}
-    {% else %}
-      <li class="empty">Nothing yet</li>
     {% endfor %}
   </ul>
 
@@ -35,7 +33,7 @@
         hx-sync="this:queue all"
         hx-target="closest .column" hx-swap="outerHTML">
     <input type="hidden" name="key" value="{{ col.key }}">
-    <input class="add-input" type="text" name="title" placeholder="+ Add task"
-           autocomplete="off" data-column="{{ col.key }}">
+    <input class="add-input" type="text" name="title" placeholder="+"
+           aria-label="Add a task" autocomplete="off" data-column="{{ col.key }}">
   </form>
 </section>

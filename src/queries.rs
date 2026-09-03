@@ -380,6 +380,33 @@ pub fn update_task_cas(
     Ok(changed == 1)
 }
 
+/// A task including a deleted one, which is what undo needs to look at.
+pub fn task_any(conn: &Connection, id: i64) -> Result<Option<Task>> {
+    let sql = format!("SELECT {TASK_COLS} FROM tasks WHERE id = ?1");
+    conn.query_row(&sql, params![id], map_task).optional()
+}
+
+/// Puts a soft-deleted task back where it was.
+///
+/// Deleting decremented everything below it while leaving its own position
+/// untouched, so re-opening that gap and clearing the tombstone restores the
+/// exact order — no "where did it go" surprise. Call inside a transaction.
+pub fn restore_task(conn: &Connection, id: i64) -> Result<()> {
+    let Some(t) = task_any(conn, id)? else {
+        return Ok(());
+    };
+    conn.execute(
+        "UPDATE tasks SET position = position + 1
+         WHERE list_id = ?1 AND deleted_at IS NULL AND position >= ?2",
+        params![t.list_id, t.position],
+    )?;
+    conn.execute(
+        "UPDATE tasks SET deleted_at = NULL, updated_at = ?2 WHERE id = ?1",
+        params![id, now()],
+    )?;
+    Ok(())
+}
+
 /// Soft delete, then close the gap it leaves. Without the renumbering, a
 /// deleted row's position stays reserved forever and the list stops being a
 /// dense 0..n run — which is the invariant `move_task` clamps against.
@@ -691,6 +718,66 @@ mod tests {
 
         // the fixture's own list is still intact and queryable
         assert!(tasks_for_list(&conn, list_a, true).unwrap().is_empty());
+    }
+
+    // ---------------------------------------------------------- undo
+
+    #[test]
+    fn undo_puts_a_task_back_exactly_where_it_was() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three", "four"]);
+
+        delete_task(&conn, ids[1]).unwrap();
+        assert_eq!(titles(&conn, a), ["one", "three", "four"]);
+        assert_eq!(positions(&conn, a), [0, 1, 2]);
+
+        restore_task(&conn, ids[1]).unwrap();
+        assert_eq!(titles(&conn, a), ["one", "two", "three", "four"]);
+        assert_eq!(positions(&conn, a), [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn undoing_a_deleted_head_or_tail_also_restores_the_order() {
+        for index in [0, 2] {
+            let (conn, author, a, _) = fixture();
+            let ids = seed(&conn, a, author, &["one", "two", "three"]);
+            delete_task(&conn, ids[index]).unwrap();
+            restore_task(&conn, ids[index]).unwrap();
+            assert_eq!(titles(&conn, a), ["one", "two", "three"]);
+            assert_eq!(positions(&conn, a), [0, 1, 2]);
+        }
+    }
+
+    #[test]
+    fn undo_survives_other_edits_made_in_between() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two", "three"]);
+        delete_task(&conn, ids[0]).unwrap();
+        let added = create_task(&conn, a, "four", author).unwrap();
+
+        restore_task(&conn, ids[0]).unwrap();
+        assert_eq!(titles(&conn, a), ["one", "two", "three", "four"]);
+        assert_eq!(positions(&conn, a), [0, 1, 2, 3]);
+        assert!(task(&conn, added).unwrap().is_some());
+    }
+
+    #[test]
+    fn undoing_something_that_was_never_deleted_is_harmless() {
+        let (conn, author, a, _) = fixture();
+        let ids = seed(&conn, a, author, &["one", "two"]);
+        restore_task(&conn, 9999).unwrap(); // no such task
+        assert_eq!(titles(&conn, a), ["one", "two"]);
+        assert_eq!(positions(&conn, a), [0, 1]);
+        assert!(task(&conn, ids[0]).unwrap().is_some());
+    }
+
+    #[test]
+    fn task_any_sees_through_a_tombstone() {
+        let (conn, author, a, _) = fixture();
+        let id = seed(&conn, a, author, &["gone"])[0];
+        delete_task(&conn, id).unwrap();
+        assert!(task(&conn, id).unwrap().is_none());
+        assert_eq!(task_any(&conn, id).unwrap().unwrap().title, "gone");
     }
 
     // ------------------------------------------- drop intent -> position
