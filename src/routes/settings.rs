@@ -1,20 +1,20 @@
 //! Users, boards, membership, custom lists, and the identity picker.
 
 use anyhow::Context;
+use axum::Router;
 use axum::extract::State;
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
-use axum::Router;
 // serde_urlencoded (axum::Form) cannot deserialise repeated keys into a Vec,
 // which is exactly what a set of membership checkboxes posts.
+use axum_extra::extract::CookieJar;
 use axum_extra::extract::Form;
 use axum_extra::extract::cookie::{Cookie, SameSite};
-use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
 use crate::error::AppResult;
-use crate::routes::{current_user, render, IDENTITY_COOKIE};
-use crate::{queries, AppState};
+use crate::routes::{IDENTITY_COOKIE, current_user, render};
+use crate::{AppState, queries};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -37,27 +37,32 @@ const PALETTE: &[&str] = &[
 async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     let me = current_user(&state, &jar)?;
 
-    let (users, boards, move_completed, overdue_action) = state.db.with(|conn| -> anyhow::Result<_> {
-        let users = queries::users(conn)?;
-        let boards = queries::boards(conn)?;
-        let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
-        let overdue_action =
-            queries::get_setting(conn, queries::OVERDUE_ACTION, queries::OVERDUE_LIST)?;
-        let mut board_rows = Vec::new();
-        for b in &boards {
-            let members = queries::board_member_ids(conn, b.id)?;
-            let lists = queries::custom_lists(conn, b.id)?;
-            board_rows.push(minijinja::context! {
-                id => b.id,
-                name => b.name.clone(),
-                members => members,
-                lists => lists,
-            });
-        }
-        Ok((users, board_rows, move_completed, overdue_action))
-    }).context("loading the settings page")?;
+    let (users, boards, move_completed, overdue_action) = state
+        .db
+        .with(|conn| -> anyhow::Result<_> {
+            let users = queries::users(conn)?;
+            let boards = queries::boards(conn)?;
+            let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
+            let overdue_action =
+                queries::get_setting(conn, queries::OVERDUE_ACTION, queries::OVERDUE_LIST)?;
+            let mut board_rows = Vec::new();
+            for b in &boards {
+                let members = queries::board_member_ids(conn, b.id)?;
+                let lists = queries::custom_lists(conn, b.id)?;
+                board_rows.push(minijinja::context! {
+                    id => b.id,
+                    name => b.name.clone(),
+                    members => members,
+                    lists => lists,
+                });
+            }
+            Ok((users, board_rows, move_completed, overdue_action))
+        })
+        .context("loading the settings page")?;
 
-    let _theme = me.as_ref().map_or_else(|| "system".to_string(), |u| u.theme.clone());
+    let _theme = me
+        .as_ref()
+        .map_or_else(|| "system".to_string(), |u| u.theme.clone());
     render(
         &state,
         "settings.html",
@@ -88,21 +93,24 @@ struct UserForm {
 
 async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> AppResult {
     let name = f.name.trim().to_string();
-    state.db.with(|conn| -> anyhow::Result<_> {
-        match f.action.as_str() {
-            "create" if !name.is_empty() => {
-                // Cycle the palette so consecutive users never collide.
-                let n = queries::users(conn)?.len();
-                let colour = if f.colour.is_empty() {
-                    PALETTE[n % PALETTE.len()].to_string()
-                } else {
-                    f.colour.clone()
-                };
-                queries::create_user(conn, &name, &colour)?;
-            }
-            "update" => {
-                if let Some(id) = f.id
-                    && !name.is_empty() {
+    state
+        .db
+        .with(|conn| -> anyhow::Result<_> {
+            match f.action.as_str() {
+                "create" if !name.is_empty() => {
+                    // Cycle the palette so consecutive users never collide.
+                    let n = queries::users(conn)?.len();
+                    let colour = if f.colour.is_empty() {
+                        PALETTE[n % PALETTE.len()].to_string()
+                    } else {
+                        f.colour.clone()
+                    };
+                    queries::create_user(conn, &name, &colour)?;
+                }
+                "update" => {
+                    if let Some(id) = f.id
+                        && !name.is_empty()
+                    {
                         queries::update_user(
                             conn,
                             id,
@@ -111,16 +119,17 @@ async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> 
                             f.theme.as_deref().unwrap_or("system"),
                         )?;
                     }
-            }
-            "delete" => {
-                if let Some(id) = f.id {
-                    queries::delete_user(conn, id)?;
                 }
+                "delete" => {
+                    if let Some(id) = f.id {
+                        queries::delete_user(conn, id)?;
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-        Ok(())
-    }).with_context(|| format!("user action {:?}", f.action))?;
+            Ok(())
+        })
+        .with_context(|| format!("user action {:?}", f.action))?;
 
     Ok(Redirect::to("/settings").into_response())
 }
@@ -139,29 +148,32 @@ struct BoardForm {
 
 async fn board_action(State(state): State<AppState>, Form(f): Form<BoardForm>) -> AppResult {
     let name = f.name.trim().to_string();
-    state.db.transaction(|tx| -> anyhow::Result<_> {
-        match f.action.as_str() {
-            "create" if !name.is_empty() => {
-                let id = queries::create_board(tx, &name)?;
-                queries::set_board_members(tx, id, &f.member)?;
-            }
-            "update" => {
-                if let Some(id) = f.id {
-                    if !name.is_empty() {
-                        queries::rename_board(tx, id, &name)?;
-                    }
+    state
+        .db
+        .transaction(|tx| -> anyhow::Result<_> {
+            match f.action.as_str() {
+                "create" if !name.is_empty() => {
+                    let id = queries::create_board(tx, &name)?;
                     queries::set_board_members(tx, id, &f.member)?;
                 }
-            }
-            "delete" => {
-                if let Some(id) = f.id {
-                    queries::delete_board(tx, id)?;
+                "update" => {
+                    if let Some(id) = f.id {
+                        if !name.is_empty() {
+                            queries::rename_board(tx, id, &name)?;
+                        }
+                        queries::set_board_members(tx, id, &f.member)?;
+                    }
                 }
+                "delete" => {
+                    if let Some(id) = f.id {
+                        queries::delete_board(tx, id)?;
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-        Ok(())
-    }).with_context(|| format!("board action {:?}", f.action))?;
+            Ok(())
+        })
+        .with_context(|| format!("board action {:?}", f.action))?;
 
     Ok(Redirect::to("/settings").into_response())
 }
@@ -179,28 +191,32 @@ struct ListForm {
 
 async fn list_action(State(state): State<AppState>, Form(f): Form<ListForm>) -> AppResult {
     let name = f.name.trim().to_string();
-    state.db.with(|conn| -> anyhow::Result<_> {
-        match f.action.as_str() {
-            "create" => {
-                if let Some(board_id) = f.board_id
-                    && !name.is_empty() {
+    state
+        .db
+        .with(|conn| -> anyhow::Result<_> {
+            match f.action.as_str() {
+                "create" => {
+                    if let Some(board_id) = f.board_id
+                        && !name.is_empty()
+                    {
                         queries::create_custom_list(conn, board_id, &name)?;
                     }
-            }
-            "rename" => {
-                if let (Some(id), false) = (f.id, name.is_empty()) {
-                    queries::rename_list(conn, id, &name)?;
                 }
-            }
-            "delete" => {
-                if let Some(id) = f.id {
-                    queries::delete_list(conn, id)?;
+                "rename" => {
+                    if let (Some(id), false) = (f.id, name.is_empty()) {
+                        queries::rename_list(conn, id, &name)?;
+                    }
                 }
+                "delete" => {
+                    if let Some(id) = f.id {
+                        queries::delete_list(conn, id)?;
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-        Ok(())
-    }).with_context(|| format!("list action {:?}", f.action))?;
+            Ok(())
+        })
+        .with_context(|| format!("list action {:?}", f.action))?;
 
     Ok(Redirect::to("/settings").into_response())
 }
@@ -260,7 +276,11 @@ async fn theme_action(
         .context("saving the theme")?;
 
     // Only ever back to a page of ours.
-    let next = if f.next.starts_with('/') { f.next } else { "/".into() };
+    let next = if f.next.starts_with('/') {
+        f.next
+    } else {
+        "/".into()
+    };
     Ok(Redirect::to(&next).into_response())
 }
 
@@ -278,7 +298,10 @@ async fn whoami(jar: CookieJar, Form(f): Form<WhoamiForm>) -> impl IntoResponse 
     // Long-lived on purpose: picking your name should stick across restarts.
     cookie.set_max_age(time::Duration::days(365));
 
-    let next = f.next.filter(|n| n.starts_with('/')).unwrap_or_else(|| "/".into());
+    let next = f
+        .next
+        .filter(|n| n.starts_with('/'))
+        .unwrap_or_else(|| "/".into());
     (jar.add(cookie), Redirect::to(&next))
 }
 
@@ -288,5 +311,9 @@ async fn pick_page(State(state): State<AppState>) -> AppResult {
         .db
         .with(queries::users)
         .context("loading users for the picker")?;
-    render(&state, "pick_user.html", minijinja::context! { users => users })
+    render(
+        &state,
+        "pick_user.html",
+        minijinja::context! { users => users },
+    )
 }

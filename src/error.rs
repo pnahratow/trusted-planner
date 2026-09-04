@@ -27,11 +27,7 @@ impl IntoResponse for AppError {
         // `{:#}` prints the context chain on one line: the innermost SQLite
         // message plus every `.context()` the call stack added.
         tracing::error!(error = format!("{:#}", self.0), "request failed");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{:#}\n", self.0),
-        )
-            .into_response()
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("{:#}\n", self.0)).into_response()
     }
 }
 

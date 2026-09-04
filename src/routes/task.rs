@@ -2,18 +2,18 @@
 //! the server's view of ordering always wins over the client's guess.
 
 use anyhow::Context;
+use axum::Router;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use axum_extra::extract::Form;
 use serde::Deserialize;
 
 use crate::error::AppResult;
 use crate::routes::board::render_column;
-use crate::routes::{current_user, render, Density};
+use crate::routes::{Density, current_user, render};
 use crate::views::{self, ColumnKey};
-use crate::{queries, AppState};
+use crate::{AppState, queries};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -236,12 +236,16 @@ async fn edit_form(State(state): State<AppState>, Path(id): Path<i64>) -> AppRes
                 return Ok(None);
             };
             let key = match &l.date {
-                Some(d) => ColumnKey::Day(
-                    crate::calendar::parse(d).unwrap_or_else(crate::calendar::today),
-                ),
+                Some(d) => {
+                    ColumnKey::Day(crate::calendar::parse(d).unwrap_or_else(crate::calendar::today))
+                }
                 None => ColumnKey::List(l.id),
             };
-            Ok(Some((views::task_view(&t, &authors), l.board_id, key.as_string())))
+            Ok(Some((
+                views::task_view(&t, &authors),
+                l.board_id,
+                key.as_string(),
+            )))
         })
         .with_context(|| format!("loading the editor for task {id}"))?;
 

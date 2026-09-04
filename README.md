@@ -42,6 +42,7 @@ compiled into the binary, so the image needs no `tzdata`.
 ```sh
 cargo test
 cargo clippy --all-targets   # pedantic + nursery, warning-free
+cargo fmt --check            # stock rustfmt, no config
 ```
 
 Covers the things that are easy to get subtly wrong — task position renumbering

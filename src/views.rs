@@ -85,14 +85,11 @@ impl ColumnKey {
     /// The existing list row, if any. Never creates one — reads must not write.
     pub fn resolve_for_read(&self, conn: &Connection, board_id: i64) -> Result<Option<i64>> {
         match self {
-            Self::Day(d) => queries::day_lists_in_range(
-                conn,
-                board_id,
-                &calendar::fmt(*d),
-                &calendar::fmt(*d),
-            )
-            .map(|ls| ls.first().map(|l| l.id))
-            .with_context(|| format!("looking up the day list for {d}")),
+            Self::Day(d) => {
+                queries::day_lists_in_range(conn, board_id, &calendar::fmt(*d), &calendar::fmt(*d))
+                    .map(|ls| ls.first().map(|l| l.id))
+                    .with_context(|| format!("looking up the day list for {d}"))
+            }
             Self::List(id) => Ok(queries::list(conn, *id)?
                 .filter(|l| l.board_id == board_id)
                 .map(|l| l.id)),
@@ -165,7 +162,10 @@ pub fn column_view(
         is_today: matches!(key, ColumnKey::Day(d) if d == calendar::today()),
         list_id,
         density,
-        tasks: tasks[..shown].iter().map(|t| task_view(t, authors)).collect(),
+        tasks: tasks[..shown]
+            .iter()
+            .map(|t| task_view(t, authors))
+            .collect(),
         hidden: tasks.len() - shown,
     }
 }
@@ -206,7 +206,9 @@ pub fn load_column(
         ),
     };
 
-    Ok(column_view(key, list_id, heading, subheading, &tasks, &authors, density))
+    Ok(column_view(
+        key, list_id, heading, subheading, &tasks, &authors, density,
+    ))
 }
 
 #[cfg(test)]

@@ -195,7 +195,14 @@ mod tests {
 
     #[test]
     fn nonsense_dates_are_rejected() {
-        for raw in ["", "2026-13-01", "2026-02-30", "2028-02-30", "today", "2026-09"] {
+        for raw in [
+            "",
+            "2026-13-01",
+            "2026-02-30",
+            "2028-02-30",
+            "today",
+            "2026-09",
+        ] {
             assert!(parse(raw).is_none(), "{raw} should not parse");
         }
     }

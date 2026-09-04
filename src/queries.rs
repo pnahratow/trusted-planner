@@ -2,7 +2,7 @@
 //! inside or outside a transaction (`Transaction` derefs to `Connection`).
 
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 
 use crate::models::{Board, List, Task, User};
 
@@ -108,7 +108,13 @@ pub fn create_user(conn: &Connection, name: &str, colour: &str) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
-pub fn update_user(conn: &Connection, id: i64, name: &str, colour: &str, theme: &str) -> Result<()> {
+pub fn update_user(
+    conn: &Connection,
+    id: i64,
+    name: &str,
+    colour: &str,
+    theme: &str,
+) -> Result<()> {
     conn.execute(
         "UPDATE users SET name = ?2, colour = ?3, theme = ?4 WHERE id = ?1",
         params![id, name, colour, theme],
@@ -169,7 +175,10 @@ pub fn create_board(conn: &Connection, name: &str) -> Result<i64> {
 }
 
 pub fn rename_board(conn: &Connection, id: i64, name: &str) -> Result<()> {
-    conn.execute("UPDATE boards SET name = ?2 WHERE id = ?1", params![id, name])?;
+    conn.execute(
+        "UPDATE boards SET name = ?2 WHERE id = ?1",
+        params![id, name],
+    )?;
     Ok(())
 }
 
@@ -194,8 +203,7 @@ pub fn set_board_members(conn: &Connection, board_id: i64, user_ids: &[i64]) -> 
         "DELETE FROM board_members WHERE board_id = ?1",
         params![board_id],
     )?;
-    let mut stmt =
-        conn.prepare("INSERT INTO board_members (board_id, user_id) VALUES (?1, ?2)")?;
+    let mut stmt = conn.prepare("INSERT INTO board_members (board_id, user_id) VALUES (?1, ?2)")?;
     for uid in user_ids {
         stmt.execute(params![board_id, uid])?;
     }
@@ -296,7 +304,10 @@ pub fn create_custom_list(conn: &Connection, board_id: i64, name: &str) -> Resul
 }
 
 pub fn rename_list(conn: &Connection, id: i64, name: &str) -> Result<()> {
-    conn.execute("UPDATE lists SET name = ?2 WHERE id = ?1", params![id, name])?;
+    conn.execute(
+        "UPDATE lists SET name = ?2 WHERE id = ?1",
+        params![id, name],
+    )?;
     Ok(())
 }
 
@@ -791,7 +802,10 @@ mod tests {
         update_user(&conn, u2, "Renamed", "#2ea36b", "dark").unwrap();
         assert_eq!(user(&conn, u2).unwrap().unwrap().theme, "dark");
         delete_user(&conn, u2).unwrap();
-        assert!(user(&conn, u2).unwrap().is_none(), "soft-deleted users stop resolving");
+        assert!(
+            user(&conn, u2).unwrap().is_none(),
+            "soft-deleted users stop resolving"
+        );
         assert_eq!(users(&conn).unwrap().len(), 1);
 
         // boards and membership
@@ -801,7 +815,12 @@ mod tests {
         set_board_members(&conn, b, &[author]).unwrap();
         assert_eq!(board_member_ids(&conn, b).unwrap(), vec![author]);
         assert_eq!(board_member_count(&conn, b).unwrap(), 1);
-        assert!(boards_for_user(&conn, author).unwrap().iter().any(|x| x.id == b));
+        assert!(
+            boards_for_user(&conn, author)
+                .unwrap()
+                .iter()
+                .any(|x| x.id == b)
+        );
         rename_board(&conn, b, "Renamed Board").unwrap();
         assert_eq!(board(&conn, b).unwrap().unwrap().name, "Renamed Board");
 
@@ -813,18 +832,33 @@ mod tests {
         assert_eq!(list(&conn, cl).unwrap().unwrap().name.unwrap(), "Groceries");
 
         let day = ensure_day_list(&conn, b, "2026-09-03").unwrap();
-        assert_eq!(day_lists_in_range(&conn, b, "2026-09-01", "2026-09-30").unwrap().len(), 1);
-        assert!(day_lists_in_range(&conn, b, "2026-10-01", "2026-10-31").unwrap().is_empty());
+        assert_eq!(
+            day_lists_in_range(&conn, b, "2026-09-01", "2026-09-30")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            day_lists_in_range(&conn, b, "2026-10-01", "2026-10-31")
+                .unwrap()
+                .is_empty()
+        );
 
         // tasks
         let t1 = create_task(&conn, day, "first", author).unwrap();
         let t2 = create_task(&conn, cl, "second", author).unwrap();
         assert!(task(&conn, t1).unwrap().is_some());
         assert_eq!(task_ids_in_list(&conn, day, None).unwrap(), vec![t1]);
-        assert_eq!(task_ids_in_list(&conn, day, Some(t1)).unwrap(), Vec::<i64>::new());
+        assert_eq!(
+            task_ids_in_list(&conn, day, Some(t1)).unwrap(),
+            Vec::<i64>::new()
+        );
         assert_eq!(tasks_for_list(&conn, cl, false).unwrap().len(), 1);
         assert_eq!(tasks_for_lists(&conn, &[day, cl], true).unwrap().len(), 2);
-        assert!(tasks_for_lists(&conn, &[], false).unwrap().is_empty(), "no ids, no query");
+        assert!(
+            tasks_for_lists(&conn, &[], false).unwrap().is_empty(),
+            "no ids, no query"
+        );
 
         // flags
         set_flag(&conn, MOVE_COMPLETED, false).unwrap();
@@ -925,7 +959,10 @@ mod tests {
             .map(|t| t.title)
             .collect();
         assert_eq!(titles, ["monday leftover", "tuesday leftover"]);
-        assert!(list(&conn, dest).unwrap().unwrap().date.is_none(), "off the calendar");
+        assert!(
+            list(&conn, dest).unwrap().unwrap().date.is_none(),
+            "off the calendar"
+        );
     }
 
     /// The sweep runs on every page load, so running it twice must be the same
@@ -952,7 +989,11 @@ mod tests {
         sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap();
         let done = task(&conn, ids[2]).unwrap().unwrap();
         let its_list = list(&conn, done.list_id).unwrap().unwrap();
-        assert_eq!(its_list.date.as_deref(), Some("2026-09-02"), "history stays put");
+        assert_eq!(
+            its_list.date.as_deref(),
+            Some("2026-09-02"),
+            "history stays put"
+        );
     }
 
     #[test]
@@ -979,7 +1020,11 @@ mod tests {
         let two = create_board(&conn, "Two").unwrap();
 
         let a = ensure_overdue_list(&conn, one).unwrap();
-        assert_eq!(a, ensure_overdue_list(&conn, one).unwrap(), "reused, not remade");
+        assert_eq!(
+            a,
+            ensure_overdue_list(&conn, one).unwrap(),
+            "reused, not remade"
+        );
         assert_ne!(a, ensure_overdue_list(&conn, two).unwrap(), "one per board");
         assert_eq!(custom_lists(&conn, one).unwrap().len(), 1);
     }
@@ -990,7 +1035,11 @@ mod tests {
         let board = create_board(&conn, "B").unwrap();
         let id = ensure_overdue_list(&conn, board).unwrap();
         rename_list(&conn, id, "Backlog").unwrap();
-        assert_eq!(ensure_overdue_list(&conn, board).unwrap(), id, "tracked by id");
+        assert_eq!(
+            ensure_overdue_list(&conn, board).unwrap(),
+            id,
+            "tracked by id"
+        );
     }
 
     #[test]
@@ -1012,8 +1061,15 @@ mod tests {
         let today = ensure_day_list(&conn, board, TODAY).unwrap();
         create_task(&conn, today, "for today", author).unwrap();
 
-        assert_eq!(sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap(), Vec::<i64>::new());
-        assert_eq!(custom_lists(&conn, board).unwrap().len(), 0, "no list made for nothing");
+        assert_eq!(
+            sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap(),
+            Vec::<i64>::new()
+        );
+        assert_eq!(
+            custom_lists(&conn, board).unwrap().len(),
+            0,
+            "no list made for nothing"
+        );
     }
 
     // ---------------------------------------------------------- undo
@@ -1150,7 +1206,10 @@ mod tests {
         delete_task(&conn, ids[1]).unwrap();
 
         let pos = position_after(&conn, a, ids[0], Some(ids[1])).unwrap();
-        assert_eq!(pos, 1, "appended to the two survivors, not sent to the head");
+        assert_eq!(
+            pos, 1,
+            "appended to the two survivors, not sent to the head"
+        );
     }
 
     #[test]
@@ -1202,7 +1261,11 @@ mod tests {
 
         let t = task(&conn, id).unwrap().unwrap();
         assert_eq!(t.title, "theirs", "a refused write must not be merged");
-        assert_eq!(t.version, stale + 1, "a refused write must not bump version");
+        assert_eq!(
+            t.version,
+            stale + 1,
+            "a refused write must not bump version"
+        );
     }
 
     #[test]
@@ -1240,7 +1303,12 @@ mod tests {
 
         let other_day = ensure_day_list(&conn, board, "2026-09-04").unwrap();
         assert_ne!(first, other_day);
-        assert_eq!(day_lists_in_range(&conn, board, "2026-09-01", "2026-09-30").unwrap().len(), 2);
+        assert_eq!(
+            day_lists_in_range(&conn, board, "2026-09-01", "2026-09-30")
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]
@@ -1264,7 +1332,10 @@ mod tests {
         assert!(!get_flag(&conn, MOVE_COMPLETED, true).unwrap());
 
         set_flag(&conn, MOVE_COMPLETED, true).unwrap();
-        assert!(get_flag(&conn, MOVE_COMPLETED, true).unwrap(), "upsert, not a duplicate row");
+        assert!(
+            get_flag(&conn, MOVE_COMPLETED, true).unwrap(),
+            "upsert, not a duplicate row"
+        );
     }
 
     #[test]
@@ -1280,7 +1351,11 @@ mod tests {
         let ids = seed(&conn, a, author, &["one", "two", "three"]);
         toggle_task(&conn, ids[0]).unwrap();
 
-        assert_eq!(titles(&conn, a), ["one", "two", "three"], "stored order is untouched");
+        assert_eq!(
+            titles(&conn, a),
+            ["one", "two", "three"],
+            "stored order is untouched"
+        );
         let sunk: Vec<String> = tasks_for_list(&conn, a, true)
             .unwrap()
             .into_iter()

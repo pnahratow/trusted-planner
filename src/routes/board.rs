@@ -1,18 +1,18 @@
 //! The week grid and the column fragment both views share.
 
 use anyhow::Context;
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::get;
-use axum::Router;
 use axum_extra::extract::CookieJar;
 
 use crate::calendar;
 use crate::error::AppResult;
 use crate::routes::{current_user, render, theme_cycle};
-use crate::views::{self, density_for, ColumnKey, COMPACT, FULL};
+use crate::views::{self, COMPACT, ColumnKey, FULL, density_for};
+use crate::{AppState, queries};
 use serde::Deserialize;
-use crate::{queries, AppState};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -63,15 +63,12 @@ fn sweep_overdue(state: &AppState, board_id: i64) -> anyhow::Result<()> {
 
     // Tell other browsers which columns moved under them.
     for list_id in touched {
-        if let Some(key) = state
-            .db
-            .with(|conn| -> anyhow::Result<_> {
-                Ok(queries::list(conn, list_id)?.and_then(|l| match &l.date {
-                    Some(d) => calendar::parse(d).map(ColumnKey::Day),
-                    None => Some(ColumnKey::List(l.id)),
-                }))
-            })?
-        {
+        if let Some(key) = state.db.with(|conn| -> anyhow::Result<_> {
+            Ok(queries::list(conn, list_id)?.and_then(|l| match &l.date {
+                Some(d) => calendar::parse(d).map(ColumnKey::Day),
+                None => Some(ColumnKey::List(l.id)),
+            }))
+        })? {
             state.changes.record(board_id, &key);
         }
     }
@@ -128,7 +125,11 @@ fn load_grid(
             .context("loading tasks for the grid")?;
 
         let of_list = |list_id: i64| -> Vec<crate::models::Task> {
-            tasks.iter().filter(|t| t.list_id == list_id).cloned().collect()
+            tasks
+                .iter()
+                .filter(|t| t.list_id == list_id)
+                .cloned()
+                .collect()
         };
 
         let days = dates
@@ -168,7 +169,14 @@ fn load_grid(
             })
             .collect();
 
-        Ok(Some(Grid { board, users, boards, days, lists, show_colour }))
+        Ok(Some(Grid {
+            board,
+            users,
+            boards,
+            days,
+            lists,
+            show_colour,
+        }))
     })
 }
 
@@ -338,7 +346,11 @@ async fn column_fragment(
     let Some(key) = ColumnKey::parse(&key) else {
         return Ok((axum::http::StatusCode::BAD_REQUEST, "bad column key\n").into_response());
     };
-    let page = if q.density.as_deref() == Some(COMPACT) { COMPACT } else { FULL };
+    let page = if q.density.as_deref() == Some(COMPACT) {
+        COMPACT
+    } else {
+        FULL
+    };
     render_column(&state, board_id, key, page)
 }
 

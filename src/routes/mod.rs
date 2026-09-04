@@ -10,9 +10,9 @@ use anyhow::{Context, Result};
 use axum::Router;
 use axum_extra::extract::CookieJar;
 
+use crate::AppState;
 use crate::error::AppResult;
 use crate::models::User;
-use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
