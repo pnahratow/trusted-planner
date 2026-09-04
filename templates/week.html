@@ -13,14 +13,5 @@
   {% endfor %}
 </div>
 
-{% if lists %}
-<div class="lists-row">
-  {% for col in lists %}
-    {% include "column.html" %}
-  {% endfor %}
-</div>
-{% else %}
-<p class="hint">{{ "No custom lists on this board yet — add one in" | t }}
-   <a href="/settings">{{ "settings" | t }}</a>.</p>
-{% endif %}
+{% include "lists_row.html" %}
 {% endblock %}

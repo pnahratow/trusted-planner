@@ -167,6 +167,14 @@ because it is an ordinary list from then on and yours to rename. German calls
 it `Todo` as well; change the right hand side in `de.json` if you would rather
 it said something else.
 
+## Settings
+
+There is no Save button. Renaming a person, picking a colour, ticking an option
+— the change *is* the instruction, and it takes effect when you make it, on
+blur for a text field and immediately for anything else. Adding and removing
+still have buttons, because those are not adjustments to something already
+there.
+
 ## Theme
 
 Light, dark, or system, per person — it is about the eyes in front of the

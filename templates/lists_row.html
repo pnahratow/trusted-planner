@@ -1,0 +1,14 @@
+{# Custom lists, beneath whichever grid is above them (D17) — and, when there
+   are none, the line that says where they come from. Shared by both grids so
+   the two cannot drift apart, which they had: the four-week view showed
+   nothing at all and left the reader to guess. #}
+{% if lists %}
+<div class="lists-row">
+  {% for col in lists %}
+    {% include "column.html" %}
+  {% endfor %}
+</div>
+{% else %}
+<p class="hint">{{ "No custom lists on this board yet — add one in" | t }}
+   <a href="/settings">{{ "settings" | t }}</a>.</p>
+{% endif %}

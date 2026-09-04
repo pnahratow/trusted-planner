@@ -20,11 +20,5 @@
    hidden by CSS while empty, so it needs no JavaScript to appear. #}
 <div id="day-panel" class="day-panel"></div>
 
-{% if lists %}
-<div class="lists-row">
-  {% for col in lists %}
-    {% include "column.html" %}
-  {% endfor %}
-</div>
-{% endif %}
+{% include "lists_row.html" %}
 {% endblock %}
