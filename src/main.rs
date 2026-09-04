@@ -91,6 +91,65 @@ fn ensure_writable(dir: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Why the server stopped, which is also how it exits.
+///
+/// Unix only, like everything else here: this ships in a Linux container.
+#[derive(Clone, Copy)]
+enum Stop {
+    /// `docker stop`, `systemctl stop`, a Kubernetes eviction.
+    Terminated,
+    /// Ctrl-C in a terminal.
+    Interrupted,
+    /// Something called `abort()` — a failed allocation, a C-level assertion
+    /// inside SQLite. Not a clean stop, and reported as one: the shutdown runs
+    /// so the database file is left whole, but the exit code still says the
+    /// process died rather than finished.
+    Aborted,
+}
+
+impl Stop {
+    const fn code(self) -> i32 {
+        match self {
+            Self::Terminated | Self::Interrupted => 0,
+            // The shell convention for "killed by signal n".
+            Self::Aborted => 128 + libc_sigabrt(),
+        }
+    }
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Terminated => "SIGTERM",
+            Self::Interrupted => "SIGINT",
+            Self::Aborted => "SIGABRT",
+        }
+    }
+}
+
+/// SIGABRT has no named `SignalKind`, and pulling in libc for one integer
+/// would be a dependency for a constant that has been 6 on every Unix for
+/// forty years.
+const fn libc_sigabrt() -> i32 {
+    6
+}
+
+/// Resolves when the process is asked to stop, whichever way it is asked.
+async fn shutdown_signal() -> Stop {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    // Registration failing means the process cannot be shut down cleanly at
+    // all, which is worth crashing over at startup rather than discovering
+    // during a deploy.
+    let mut term = signal(SignalKind::terminate()).expect("listening for SIGTERM");
+    let mut interrupt = signal(SignalKind::interrupt()).expect("listening for SIGINT");
+    let mut abort = signal(SignalKind::from_raw(libc_sigabrt())).expect("listening for SIGABRT");
+
+    tokio::select! {
+        _ = term.recv() => Stop::Terminated,
+        _ = interrupt.recv() => Stop::Interrupted,
+        _ = abort.recv() => Stop::Aborted,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -114,7 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(path = %db_path.display(), "database ready");
 
     let state = AppState {
-        db,
+        db: Arc::clone(&db),
         tmpl: Templates::new(&cfg.template_dir),
         changes: Arc::new(ChangeLog::new()),
     };
@@ -128,7 +187,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "listening");
-    axum::serve(listener, app).await?;
 
-    Ok(())
+    // The signal arrives, in-flight requests are allowed to finish, and only
+    // then does `serve` return. A poll or a page render takes microseconds, so
+    // this costs nothing against the ten seconds `docker stop` allows before
+    // it resorts to SIGKILL.
+    let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let stop = shutdown_signal().await;
+            tracing::info!(signal = stop.name(), "shutting down");
+            let _ = stopped_tx.send(stop);
+        })
+        .await?;
+
+    // Nothing is writing any more, so the log can be folded back in and the
+    // file left whole for whatever snapshots it next.
+    if let Err(e) = db.checkpoint() {
+        tracing::error!(error = %e, "could not checkpoint on shutdown");
+    }
+
+    // `Err` means serve returned for its own reasons and no signal was ever
+    // sent; that is a clean stop too.
+    let stop = stopped_rx.await.unwrap_or(Stop::Terminated);
+    tracing::info!(signal = stop.name(), code = stop.code(), "stopped");
+    std::process::exit(stop.code());
 }

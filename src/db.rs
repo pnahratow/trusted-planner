@@ -94,6 +94,22 @@ impl Db {
         out
     }
 
+    /// Folds the write-ahead log back into the database file.
+    ///
+    /// Run at shutdown. Committed data is already durable in the `-wal` file
+    /// and SQLite replays it on the next open, so this is not about losing
+    /// writes — it is about what a backup sees. The backup story here is a ZFS
+    /// snapshot or a `cp` of `planner.sqlite3`, and a copy of that file alone,
+    /// taken while a log is outstanding, is missing the most recent writes.
+    pub fn checkpoint(&self) -> Result<()> {
+        self.with(|conn| {
+            // Returns a row (busy, log pages, checkpointed pages); nothing to
+            // do with it, but the statement is a query and must be read as one.
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+        })
+        .context("checkpointing the write-ahead log")
+    }
+
     /// Runs `f` inside a transaction, committing on `Ok` and rolling back on `Err`.
     pub fn transaction<T, E>(
         &self,
@@ -108,5 +124,92 @@ impl Db {
         tx.commit()?;
         drop(conn);
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A scratch directory of our own, so the test touches nothing else.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "trusted-planner-test-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// SQLite only parses a statement when it is prepared, so a typo in a
+    /// pragma that runs once, at shutdown, would otherwise stay hidden until a
+    /// container stopped. It also checks the thing the pragma is *for*: the
+    /// log is folded back in, leaving the database file self-contained for
+    /// whatever copies it next.
+    #[test]
+    fn checkpointing_empties_the_write_ahead_log() {
+        let dir = scratch("checkpoint");
+        let path = dir.join("planner.sqlite3");
+        let db = Db::open(&path).unwrap();
+
+        db.with(|conn| {
+            conn.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('probe', 'x')",
+                [],
+            )
+        })
+        .unwrap();
+
+        let wal = dir.join("planner.sqlite3-wal");
+        assert!(
+            std::fs::metadata(&wal).unwrap().len() > 0,
+            "the write should be sitting in the log"
+        );
+
+        db.checkpoint().unwrap();
+        assert_eq!(
+            std::fs::metadata(&wal).unwrap().len(),
+            0,
+            "TRUNCATE leaves the log file empty rather than merely rewound"
+        );
+
+        // And the data is still there afterwards, which is the whole point.
+        let kept: String = db
+            .with(|conn| {
+                conn.query_row(
+                    "SELECT value FROM app_settings WHERE key = 'probe'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(kept, "x");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn migrations_run_once_and_are_idempotent_across_opens() {
+        let dir = scratch("migrate");
+        let path = dir.join("planner.sqlite3");
+
+        let applied = |db: &Db| -> i64 {
+            db.with(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
+            })
+            .unwrap()
+        };
+
+        let db = Db::open(&path).unwrap();
+        let first = applied(&db);
+        assert_eq!(first, i64::try_from(MIGRATIONS.len()).unwrap());
+        drop(db);
+
+        // Re-opening an existing database must not try to apply them again.
+        let db = Db::open(&path).unwrap();
+        assert_eq!(applied(&db), first);
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

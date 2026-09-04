@@ -105,7 +105,7 @@ than threading a hidden field through every form.
 
 ```
 src/
-  main.rs        config from env, timezone, data dir check, router assembly
+  main.rs        config from env, timezone, data dir check, router, shutdown
   db.rs          opens SQLite, runs embedded migrations, hands out the one connection
   queries.rs     every SQL statement in the app, one function each (+ half the tests)
   models.rs      User, Board, List, Task — plain structs matching table rows
@@ -131,8 +131,8 @@ migrations/      001_init.sql, 002_global_settings.sql — embedded at build tim
 
 ## A reading order
 
-1. **`src/main.rs`** (134 lines). Config, then the shape of the whole program:
-   state, router, listener. Ten minutes.
+1. **`src/main.rs`** (~200 lines). Config, then the shape of the whole program:
+   state, router, listener, and the signal handling that ends it. Ten minutes.
 2. **`migrations/001_init.sql`**, then **`src/models.rs`**. Four tables and the
    structs mirroring them. Notice `deleted_at` on almost everything — nothing is
    ever really deleted — and `version` on `tasks`.

@@ -168,6 +168,15 @@ Data lives entirely in `/data`. Restarting, upgrading or rebuilding the
 container touches nothing in there; `docker compose down` and back up keeps
 everything.
 
+`docker stop` sends SIGTERM and waits ten seconds before resorting to SIGKILL.
+The server takes milliseconds of that: it stops accepting connections, lets the
+requests already in flight finish, and folds SQLite's write-ahead log back into
+`planner.sqlite3` so the file on disk is whole. That last part is why a ZFS
+snapshot taken after a stop is a complete database rather than one missing its
+most recent writes. SIGINT (Ctrl-C locally) does the same. SIGABRT does the
+same and then exits 134, because something aborting the process is not a clean
+stop and should not be reported as one.
+
 ## Status
 
 All nine phases of the plan are done: skeleton, settings, week grid, task CRUD,
