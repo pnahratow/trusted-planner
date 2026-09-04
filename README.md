@@ -117,10 +117,17 @@ the slip pays.
 A task still unticked when its day is over follows one app-wide rule, set under
 Settings → Display:
 
-- **Move it to a list** (the default) — each board grows an `Unfinished` list,
-  so the calendar shows what is still planned rather than what went wrong. The
-  list is an ordinary custom list: rename it, or delete it and the next sweep
-  makes a new one.
+- **Move it to a list** (the default) — each board grows a `Todo` list, so the
+  calendar shows what is still planned rather than what went wrong. It is an
+  ordinary custom list: rename it and the sweep follows, because the board
+  remembers it by id rather than by name.
+
+  If the board already has a list called `Todo`, that one is used rather than a
+  second one being made — list names are not unique, so without that check a
+  board could end up with two and the tasks split between them. The match
+  ignores capitalisation. Delete the list and the next sweep makes a fresh one;
+  a board whose list was created before this was called `Unfinished`, and it
+  keeps that name until you rename it, because it is yours.
 - **Move it to today**, and again each day it stays unticked.
 - **Leave it** on the day it was written for.
 
@@ -155,8 +162,10 @@ forgot to mark for translation at all.
 
 Code, comments, commit messages, this README and everything in the database
 stay in English. The only exception is a list the app creates for you — the
-`Unfinished` list is named in whatever language was in force when it first
-appeared, because it is an ordinary list from then on and yours to rename.
+`Todo` list is named in whatever language was in force when it first appeared,
+because it is an ordinary list from then on and yours to rename. German calls
+it `Todo` as well; change the right hand side in `de.json` if you would rather
+it said something else.
 
 ## Theme
 

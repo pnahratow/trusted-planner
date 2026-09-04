@@ -45,7 +45,7 @@ fn overdue_list_key(board_id: i64) -> String {
 /// translate. Renaming it later is fine — the board remembers the list by id,
 /// not by name — which is also why switching language does not rename one that
 /// already exists.
-pub const OVERDUE_LIST_NAME: &str = "Unfinished";
+pub const OVERDUE_LIST_NAME: &str = "Todo";
 
 pub fn get_setting(conn: &Connection, key: &str, default: &str) -> Result<String> {
     let raw: Option<String> = conn
@@ -366,10 +366,21 @@ pub fn delete_list(conn: &Connection, id: i64) -> Result<()> {
 
 // -------------------------------------------------------------- overdue
 
-/// The board's list for swept-up tasks, created the first time it is needed.
+/// The board's list for swept-up tasks, found or made.
 ///
-/// Tracked by id, so renaming it keeps working; if it has been deleted, a fresh
-/// one is made rather than resurrecting a tombstone.
+/// Three steps, in order:
+///
+/// 1. The list this board already sweeps into, remembered by id — so renaming
+///    it keeps working, and a rename cannot make a second one appear.
+/// 2. Failing that, a list already called this. List names are not unique, so
+///    without this step a board that already has a "Todo" — one you made
+///    yourself, or the one from before you deleted the setting — would end up
+///    with a second list of the same name and tasks split between them. If you
+///    have already named a list this, that is the one you meant.
+/// 3. Failing that, a new list.
+///
+/// A deleted list is not resurrected: its tombstone stays, and step 2 or 3
+/// produces a live one.
 pub fn ensure_overdue_list(conn: &Connection, board_id: i64, name: &str) -> Result<i64> {
     let key = overdue_list_key(board_id);
     if let Ok(id) = get_setting(conn, &key, "")?.parse::<i64>()
@@ -379,7 +390,19 @@ pub fn ensure_overdue_list(conn: &Connection, board_id: i64, name: &str) -> Resu
     {
         return Ok(id);
     }
-    let id = create_custom_list(conn, board_id, name)?;
+
+    // Case-insensitively, because "todo" and "Todo" are the same intention and
+    // two lists a letter apart is exactly the confusion this avoids.
+    let existing = custom_lists(conn, board_id)?.into_iter().find(|l| {
+        l.name
+            .as_deref()
+            .is_some_and(|n| n.eq_ignore_ascii_case(name))
+    });
+
+    let id = match existing {
+        Some(l) => l.id,
+        None => create_custom_list(conn, board_id, name)?,
+    };
     set_setting(conn, &key, &id.to_string())?;
     Ok(id)
 }
@@ -875,6 +898,56 @@ mod tests {
             remembered_view(&conn, ann, planning).unwrap().as_deref(),
             Some(VIEW_WEEK)
         );
+    }
+
+    /// List names are not unique, so the sweep has to look before it creates:
+    /// a board that already has a Todo list must not grow a second one with
+    /// the same name and the tasks split between them.
+    #[test]
+    fn a_list_that_is_already_called_this_is_adopted_rather_than_duplicated() {
+        let (conn, _, _, _) = fixture();
+        let board = create_board(&conn, "Board").unwrap();
+        let mine = create_custom_list(&conn, board, "Todo").unwrap();
+
+        assert_eq!(ensure_overdue_list(&conn, board, "Todo").unwrap(), mine);
+        assert_eq!(
+            custom_lists(&conn, board).unwrap().len(),
+            1,
+            "no second list of the same name"
+        );
+    }
+
+    #[test]
+    fn adoption_ignores_capitalisation_but_not_the_word() {
+        let (conn, _, _, _) = fixture();
+        let board = create_board(&conn, "Board").unwrap();
+        let shouty = create_custom_list(&conn, board, "TODO").unwrap();
+        assert_eq!(ensure_overdue_list(&conn, board, "Todo").unwrap(), shouty);
+
+        let other = create_board(&conn, "Other").unwrap();
+        create_custom_list(&conn, other, "Shopping").unwrap();
+        let made = ensure_overdue_list(&conn, other, "Todo").unwrap();
+        assert_eq!(
+            list(&conn, made).unwrap().unwrap().name.unwrap(),
+            "Todo",
+            "an unrelated list is not adopted"
+        );
+        assert_eq!(custom_lists(&conn, other).unwrap().len(), 2);
+    }
+
+    /// Deleting the list the board sweeps into and having another by the same
+    /// name is the awkward case: the tombstone must not come back, and neither
+    /// must a duplicate.
+    #[test]
+    fn a_deleted_target_falls_through_to_the_one_still_standing() {
+        let (conn, _, _, _) = fixture();
+        let board = create_board(&conn, "Board").unwrap();
+        let first = ensure_overdue_list(&conn, board, "Todo").unwrap();
+        let second = create_custom_list(&conn, board, "Todo").unwrap();
+        delete_list(&conn, first).unwrap();
+
+        assert_eq!(ensure_overdue_list(&conn, board, "Todo").unwrap(), second);
+        assert_eq!(custom_lists(&conn, board).unwrap().len(), 1);
     }
 
     #[test]

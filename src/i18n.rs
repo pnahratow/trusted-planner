@@ -181,7 +181,7 @@ mod tests {
         // A custom list whose name went missing, and the list the overdue
         // sweep creates.
         "List",
-        "Unfinished",
+        "Todo",
         // The view toggle's label, which names the grid it switches *to*.
         "Week",
         "4 weeks",

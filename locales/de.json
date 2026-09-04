@@ -55,9 +55,9 @@
   "Their tasks stay.": "Ihre Aufgaben bleiben.",
   "Theme": "Erscheinungsbild",
   "This browser": "Dieser Browser",
+  "Todo": "Todo",
   "Today": "Heute",
   "Undo": "Rückgängig",
-  "Unfinished": "Unerledigt",
   "Users": "Personen",
   "Week": "Woche",
   "When a day has passed and a task is still unticked": "Wenn ein Tag vorbei ist und eine Aufgabe noch offen ist",
@@ -65,15 +65,12 @@
   "You are currently": "Du bist gerade",
   "4 weeks": "4 Wochen",
   "+ list": "+ Liste",
-
   "system": "System",
   "light": "hell",
   "dark": "dunkel",
-
   "{day} {month}": "{day}. {month}",
   "{day} {month} {year}": "{day}. {month} {year}",
   "{weekday} {day} {month}": "{weekday}, {day}. {month}",
-
   "Mon": "Mo",
   "Tue": "Di",
   "Wed": "Mi",
@@ -88,7 +85,6 @@
   "Friday": "Freitag",
   "Saturday": "Samstag",
   "Sunday": "Sonntag",
-
   "Jan": "Jan",
   "Feb": "Feb",
   "Mar": "Mär",
