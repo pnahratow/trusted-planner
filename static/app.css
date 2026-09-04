@@ -311,14 +311,19 @@ button.column-head:hover { background: color-mix(in srgb, var(--accent) 8%, tran
    twenty-eight pills across a four-week grid is a lot of furniture. */
 .add-task .add-input {
   width: 100%; border: 0; border-radius: 6px;
-  background: transparent; padding: 6px 8px;
+  /* The page colour rather than the card's: enough of an offset to read as
+     somewhere you can type, without an outline drawing a box around it. */
+  background: var(--bg);
+  padding: 6px 8px;
   color: var(--text);
 }
 .add-task .add-input::placeholder { color: var(--muted); opacity: 0.5; }
-.add-task .add-input:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.add-task .add-input:hover { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
 .add-task .add-input:hover::placeholder { opacity: 0.9; }
 .add-task .add-input:focus {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  /* Mixed into the resting colour, not into what is behind it, so the row only
+     ever gets more accent — never briefly lighter than it started. */
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
   outline: none;
 }
 .add-task .add-input:focus::placeholder { opacity: 0; }
