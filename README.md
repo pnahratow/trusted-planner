@@ -8,6 +8,9 @@ no accounts.
 > A "personal" board is out of the way, not protected. Do not store anything
 > genuinely sensitive here.
 
+[ARCHITECTURE.md](ARCHITECTURE.md) is the tour of the source: the stack, the
+layout, and the order to read it in.
+
 ## Running it locally
 
 ```sh
