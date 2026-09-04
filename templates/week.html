@@ -20,7 +20,7 @@
   {% endfor %}
 </div>
 {% else %}
-<p class="hint">No custom lists on this board yet — add one in
-   <a href="/settings">settings</a>.</p>
+<p class="hint">{{ "No custom lists on this board yet — add one in" | t }}
+   <a href="/settings">{{ "settings" | t }}</a>.</p>
 {% endif %}
 {% endblock %}

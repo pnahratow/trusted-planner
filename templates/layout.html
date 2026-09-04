@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="{{ theme | default('system') }}">
+<html lang="{{ lang }}" data-theme="{{ theme | default('system') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,7 +14,7 @@
   <header class="topbar">
     <a class="brand" href="/">Trusted&nbsp;Planner</a>
     {% block topbar %}{% endblock %}
-    <a class="topbar-link" href="/settings">Settings</a>
+    <a class="topbar-link" href="/settings">{{ "Settings" | t }}</a>
   </header>
   <main>
     {% block content %}{% endblock %}

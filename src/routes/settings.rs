@@ -13,7 +13,7 @@ use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde::Deserialize;
 
 use crate::error::AppResult;
-use crate::routes::{IDENTITY_COOKIE, current_user, render};
+use crate::routes::{IDENTITY_COOKIE, current_user, locale, render};
 use crate::{AppState, queries};
 
 pub fn router() -> Router<AppState> {
@@ -37,7 +37,7 @@ const PALETTE: &[&str] = &[
 async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     let me = current_user(&state, &jar)?;
 
-    let (users, boards, move_completed, overdue_action) = state
+    let (users, boards, move_completed, overdue_action, language) = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             let users = queries::users(conn)?;
@@ -45,6 +45,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
             let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
             let overdue_action =
                 queries::get_setting(conn, queries::OVERDUE_ACTION, queries::OVERDUE_LIST)?;
+            let language = queries::get_setting(conn, queries::LANGUAGE, crate::i18n::DEFAULT)?;
             let mut board_rows = Vec::new();
             for b in &boards {
                 let members = queries::board_member_ids(conn, b.id)?;
@@ -56,7 +57,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
                     lists => lists,
                 });
             }
-            Ok((users, board_rows, move_completed, overdue_action))
+            Ok((users, board_rows, move_completed, overdue_action, language))
         })
         .context("loading the settings page")?;
 
@@ -65,6 +66,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
         .map_or_else(|| "system".to_string(), |u| u.theme.clone());
     render(
         &state,
+        &locale(&state),
         "settings.html",
         minijinja::context! {
             users => users,
@@ -72,6 +74,8 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
             palette => PALETTE,
             move_completed => move_completed,
             overdue_action => overdue_action,
+            language => language,
+            languages => crate::i18n::LANGUAGES,
             me => me,
             theme => me.as_ref().map_or_else(|| "system".into(), |u| u.theme.clone()),
         },
@@ -228,6 +232,8 @@ struct DisplayForm {
     move_completed_to_bottom: Option<String>,
     #[serde(default)]
     overdue_action: Option<String>,
+    #[serde(default)]
+    language: Option<String>,
 }
 
 /// App-wide display settings. Deliberately not per-user: two people looking at
@@ -239,11 +245,21 @@ async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm
         Some(queries::OVERDUE_TODAY) => queries::OVERDUE_TODAY,
         _ => queries::OVERDUE_LIST,
     };
+    // A language code becomes a file name, so only the ones on offer are
+    // stored; anything else stays as it was.
+    let language = f
+        .language
+        .as_deref()
+        .filter(|code| crate::i18n::is_known(code))
+        .map(str::to_string);
     state
         .db
         .with(|conn| -> anyhow::Result<_> {
             queries::set_flag(conn, queries::MOVE_COMPLETED, on)?;
             queries::set_setting(conn, queries::OVERDUE_ACTION, overdue)?;
+            if let Some(language) = &language {
+                queries::set_setting(conn, queries::LANGUAGE, language)?;
+            }
             Ok(())
         })
         .context("saving the display settings")?;
@@ -313,6 +329,7 @@ async fn pick_page(State(state): State<AppState>) -> AppResult {
         .context("loading users for the picker")?;
     render(
         &state,
+        &locale(&state),
         "pick_user.html",
         minijinja::context! { users => users },
     )

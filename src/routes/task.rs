@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::error::AppResult;
 use crate::routes::board::render_column;
-use crate::routes::{Density, current_user, render};
+use crate::routes::{Density, current_user, locale, render};
 use crate::views::{self, ColumnKey};
 use crate::{AppState, queries};
 
@@ -94,7 +94,7 @@ async fn create(
         state.changes.record(board_id, &key);
     }
 
-    render_column(&state, board_id, key, density)
+    render_column(&state, &locale(&state), board_id, key, density)
 }
 
 /// The three single-task mutations differ only in the statement they run, so
@@ -114,7 +114,7 @@ fn mutate_in_place(
         .with(run)
         .with_context(|| format!("{what} task {id}"))?;
     state.changes.record(board_id, &key);
-    render_column(state, board_id, key, density)
+    render_column(state, &locale(state), board_id, key, density)
 }
 
 async fn toggle(
@@ -199,18 +199,20 @@ fn render_column_with_undo(
     page_density: &str,
     undo: Option<(i64, String)>,
 ) -> AppResult {
+    let loc = locale(state);
     let density = crate::views::density_for(key, page_density);
     let (col, show_colour) = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             let show_colour = queries::board_member_count(conn, board_id)? > 1;
-            let col = views::load_column(conn, board_id, key, density)?;
+            let col = views::load_column(conn, board_id, key, density, &loc)?;
             Ok((col, show_colour))
         })
         .with_context(|| format!("re-rendering column {}", key.as_string()))?;
 
     render(
         state,
+        &loc,
         "column_undo.html",
         minijinja::context! {
             col => col,
@@ -254,6 +256,7 @@ async fn edit_form(State(state): State<AppState>, Path(id): Path<i64>) -> AppRes
     };
     render(
         &state,
+        &locale(&state),
         "task_edit.html",
         minijinja::context! {
             task => task, board_id => board_id,
@@ -288,6 +291,7 @@ async fn row_fragment(State(state): State<AppState>, Path(id): Path<i64>) -> App
     };
     render(
         &state,
+        &locale(&state),
         "task_row.html",
         minijinja::context! { task => task, show_colour => show_colour },
     )
@@ -348,6 +352,7 @@ async fn update(
         // whole answer.
         return render(
             &state,
+            &locale(&state),
             "task_row.html",
             minijinja::context! { task => view, show_colour => show_colour },
         );
@@ -361,6 +366,7 @@ async fn update(
 
     render(
         &state,
+        &locale(&state),
         "task_edit.html",
         minijinja::context! {
             task => view,
@@ -417,7 +423,7 @@ async fn move_task(
 
     // The source column changed too when the task left it; the client refetches
     // it via the out-of-band header rather than us guessing at swap targets.
-    let mut resp = render_column(&state, board_id, dest, density)?;
+    let mut resp = render_column(&state, &locale(&state), board_id, dest, density)?;
     if origin_col != dest
         && let Ok(v) = axum::http::HeaderValue::from_str(&origin_col.as_string())
     {

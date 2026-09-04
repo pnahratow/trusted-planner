@@ -30,6 +30,7 @@ for the part of the page that changed.
 | **htmx** | HTML attributes that make requests and swap the response into the page | `templates/*.html`, vendored in `static/vendor/` |
 | **SortableJS** | drag & drop | `static/app.js`, vendored |
 | **anyhow** | error type with `.context()` messages | everywhere; `src/error.rs` turns it into a 500 |
+| **serde_json** | reads the translation files | `src/i18n.rs`, `locales/*.json` |
 | **chrono** / **chrono-tz** | dates and the one timezone | `src/calendar.rs` |
 | **serde** | structs to and from forms, query strings and template context | derive attributes on the small `Form` structs |
 | **tower-http** | serves `static/`, logs requests | `main.rs` |
@@ -112,6 +113,7 @@ src/
   views.rs       rows -> what a template renders; ColumnKey lives here
   calendar.rs    date maths: Monday-of, N weeks from, formatting, the timezone
   events.rs      the in-memory change log clients poll
+  i18n.rs        the `t` filter's lookup table; English text is the key
   templates.rs   minijinja setup (strict undefined, re-read from disk)
   error.rs       AppError: anything a handler fails at becomes a logged 500
   routes/
@@ -122,6 +124,7 @@ src/
     events.rs    GET /changes — the polling endpoint
     health.rs    GET /healthz
 templates/       layout + week + weeks + column + task_row + editors + settings
+locales/         de.json — English string to German, read at render time
 static/
   app.css        one stylesheet; theming via CSS custom properties
   app.js         focus guard, undo timer, drag & drop, the poll loop
@@ -200,6 +203,8 @@ POST /task/42/toggle          <- hx-post on the checkbox form
 | Change the polling interval | `POLL_MS` in `static/app.js` |
 | Change where a board opens | `board_links` and `index` in `routes/board.rs` |
 | Change colours or spacing | the custom properties at the top of `static/app.css` |
+| Reword something German | `locales/de.json` — the English text is the key |
+| Add a language | copy `locales/de.json`, add the code to `i18n::LANGUAGES` |
 
 ## Traps
 

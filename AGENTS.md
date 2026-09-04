@@ -30,6 +30,9 @@ and no restart — reload the page.
   run inside a transaction.
 - **A new migration file does nothing** until it is listed in
   `db.rs::MIGRATIONS`; the SQL is embedded with `include_str!`.
+- **A visible string without `| t`** renders fine and leaves English on the
+  German page. The English text is the key; add the German to
+  `locales/de.json`. `cargo test i18n` checks both directions.
 - **Soft delete is everywhere.** A new `SELECT` filters `deleted_at IS NULL`.
   `task_any` is the single deliberate exception, for undo.
 - **A mutation answers with the re-rendered column**, never with a fragment the
@@ -49,6 +52,12 @@ Do not "fix" these; they are chosen, and the reasoning is in the README.
 - Live updates are short polls, not SSE. An SSE stream per tab exhausts the
   browser's six connections per origin and freezes the app at five tabs.
 - No new dependency without a reason that could not be met by twenty lines.
+
+## Language
+
+The interface speaks English or German. Everything else — code, comments,
+commit messages, documentation, database contents — stays English, including
+the keys in `locales/de.json`, which are the English strings themselves.
 
 ## Style
 

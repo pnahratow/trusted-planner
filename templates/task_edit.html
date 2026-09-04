@@ -3,10 +3,9 @@
 <li class="task task-editing" id="task-{{ task.id }}" data-task-id="{{ task.id }}">
   {% if conflict %}
   <p class="conflict">
-    Someone else changed this task while you were editing. Your draft is kept below —
-    the current saved value is
+    {{ "Someone else changed this task while you were editing. Your draft is kept below — the current saved value is" | t }}
     “<strong>{{ server_title }}</strong>”{% if server_notes %} ({{ server_notes }}){% endif %}.
-    Save again to overwrite it, or cancel to discard your draft.
+    {{ "Save again to overwrite it, or cancel to discard your draft." | t }}
   </p>
   {% endif %}
 
@@ -21,12 +20,12 @@
     <input class="edit-title" type="text" name="title" value="{{ task.title }}"
            autocomplete="off" required autofocus>
     <textarea class="edit-notes" name="notes" rows="2"
-              placeholder="Notes…">{{ task.notes }}</textarea>
+              placeholder="{{ 'Notes…' | t }}">{{ task.notes }}</textarea>
     <div class="edit-actions">
-      <button type="submit" class="btn-primary">Save</button>
+      <button type="submit" class="btn-primary">{{ "Save" | t }}</button>
       <button type="button" class="btn-plain" data-cancel-edit
               hx-get="/task/{{ task.id }}/row"
-              hx-target="closest .task" hx-swap="outerHTML">Cancel</button>
+              hx-target="closest .task" hx-swap="outerHTML">{{ "Cancel" | t }}</button>
     </div>
   </form>
 </li>

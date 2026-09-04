@@ -2,7 +2,7 @@
    partial has no idea which view it is decorating. #}
 <form class="picker" method="post" action="/whoami">
   <input type="hidden" name="next" value="{{ self_url | safe }}">
-  <label class="sr-only" for="who">Identity</label>
+  <label class="sr-only" for="who">{{ "Identity" | t }}</label>
   <select id="who" name="user_id" onchange="this.form.submit()">
     {% for u in users %}
       <option value="{{ u.id }}" {% if u.id == me.id %}selected{% endif %}>{{ u.name }}</option>
@@ -10,7 +10,7 @@
   </select>
 </form>
 
-<label class="sr-only" for="board">Board</label>
+<label class="sr-only" for="board">{{ "Board" | t }}</label>
 {# Each option carries its own URL, because a board opens in the grid it is
    read in — which is not necessarily the one you are looking at now. #}
 <select id="board" class="picker-select" onchange="location.href = this.value">
@@ -20,9 +20,9 @@
 </select>
 
 <nav class="weeknav">
-  <a class="navbtn" href="{{ prev_url | safe }}" aria-label="Previous">&lsaquo;</a>
-  <a class="navbtn today-btn" href="{{ today_url | safe }}">Today</a>
-  <a class="navbtn" href="{{ next_url | safe }}" aria-label="Next">&rsaquo;</a>
+  <a class="navbtn" href="{{ prev_url | safe }}" aria-label="{{ 'Previous' | t }}">&lsaquo;</a>
+  <a class="navbtn today-btn" href="{{ today_url | safe }}">{{ "Today" | t }}</a>
+  <a class="navbtn" href="{{ next_url | safe }}" aria-label="{{ 'Next' | t }}">&rsaquo;</a>
   <span class="range">{{ range_label }}</span>
   <a class="navbtn switch" href="{{ switch_url | safe }}">{{ switch_label }}</a>
 </nav>
@@ -30,6 +30,7 @@
 <form class="theme-toggle" method="post" action="/settings/theme">
   <input type="hidden" name="next" value="{{ self_url | safe }}">
   <input type="hidden" name="theme" value="{{ next_theme }}">
-  <button type="submit" class="navbtn" title="Theme: {{ theme }} — switch to {{ next_theme }}"
-          aria-label="Theme: {{ theme }}. Switch to {{ next_theme }}.">{{ theme_symbol }}</button>
+  <button type="submit" class="navbtn"
+          title="{{ 'Theme' | t }}: {{ theme | t }} — {{ 'switch to' | t }} {{ next_theme | t }}"
+          aria-label="{{ 'Theme' | t }}: {{ theme | t }}. {{ 'Switch to' | t }} {{ next_theme | t }}.">{{ theme_symbol }}</button>
 </form>

@@ -1,10 +1,9 @@
 {% extends "layout.html" %}
-{% block title %}Who are you?{% endblock %}
+{% block title %}{{ "Who are you?" | t }}{% endblock %}
 {% block content %}
 <section class="placeholder">
-  <h1>Who are you?</h1>
-  <p class="muted">Colour identifies you in shared boards. There is no password —
-     everyone on this network is trusted.</p>
+  <h1>{{ "Who are you?" | t }}</h1>
+  <p class="muted">{{ "Colour identifies you in shared boards. There is no password — everyone on this network is trusted." | t }}</p>
   <ul class="pick-list">
     {% for u in users %}
     <li>
@@ -17,7 +16,7 @@
       </form>
     </li>
     {% else %}
-    <li class="muted">No users yet — <a href="/settings">create one in settings</a>.</li>
+    <li class="muted">{{ "No users yet" | t }} — <a href="/settings">{{ "create one in settings" | t }}</a>.</li>
     {% endfor %}
   </ul>
 </section>

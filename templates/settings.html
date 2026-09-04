@@ -1,11 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}Settings{% endblock %}
+{% block title %}{{ "Settings" | t }}{% endblock %}
 {% block content %}
 
 <section class="panel">
-  <h2>Users</h2>
-  <p class="muted">Colour means identity and only identity — it marks who wrote a
-     task on a shared board.</p>
+  <h2>{{ "Users" | t }}</h2>
+  <p class="muted">{{ "Colour means identity and only identity — it marks who wrote a task on a shared board." | t }}</p>
 
   <ul class="settings-list">
   {% for u in users %}
@@ -22,40 +21,39 @@
               <input type="radio" name="colour" value="{{ c }}"
                      {% if c == u.colour %}checked{% endif %}>
               <span class="swatch-dot" aria-hidden="true"></span>
-              <span class="sr-only">Colour {{ loop.index }}</span>
+              <span class="sr-only">{{ "Colour" | t }} {{ loop.index }}</span>
             </label>
           {% endfor %}
         </span>
-        <select name="theme" title="Theme">
-          {% for t in ["system", "light", "dark"] %}
-            <option value="{{ t }}" {% if t == u.theme %}selected{% endif %}>{{ t }}</option>
+        <select name="theme" title="{{ 'Theme' | t }}">
+          {% for th in ["system", "light", "dark"] %}
+            <option value="{{ th }}" {% if th == u.theme %}selected{% endif %}>{{ th | t }}</option>
           {% endfor %}
         </select>
-        <button type="submit" class="btn-primary">Save</button>
+        <button type="submit" class="btn-primary">{{ "Save" | t }}</button>
       </form>
       <form method="post" action="/settings/user" class="inline-form">
         <input type="hidden" name="action" value="delete">
         <input type="hidden" name="id" value="{{ u.id }}">
         <button type="submit" class="btn-danger"
-                onclick="return confirm('Remove {{ u.name }}? Their tasks stay.')">Remove</button>
+                onclick="return confirm('{{ 'Remove' | t }} {{ u.name }}? {{ 'Their tasks stay.' | t }}')">{{ "Remove" | t }}</button>
       </form>
     </li>
   {% else %}
-    <li class="muted">No users yet. Add the first one below.</li>
+    <li class="muted">{{ "No users yet. Add the first one below." | t }}</li>
   {% endfor %}
   </ul>
 
   <form method="post" action="/settings/user" class="add-form">
     <input type="hidden" name="action" value="create">
-    <input type="text" name="name" placeholder="New user name" required>
-    <button type="submit" class="btn-primary">Add user</button>
+    <input type="text" name="name" placeholder="{{ 'New user name' | t }}" required>
+    <button type="submit" class="btn-primary">{{ "Add user" | t }}</button>
   </form>
 </section>
 
 <section class="panel">
-  <h2>Boards</h2>
-  <p class="muted">A board owns its lists and tasks. A personal board is just a
-     board with one member — the boundary is soft, not protected.</p>
+  <h2>{{ "Boards" | t }}</h2>
+  <p class="muted">{{ "A board owns its lists and tasks. A personal board is just a board with one member — the boundary is soft, not protected." | t }}</p>
 
   {% for b in boards %}
   <div class="board-card">
@@ -72,27 +70,27 @@
           </label>
         {% endfor %}
       </span>
-      <button type="submit" class="btn-primary">Save</button>
+      <button type="submit" class="btn-primary">{{ "Save" | t }}</button>
     </form>
 
     <div class="board-lists">
-      <span class="muted">Custom lists:</span>
+      <span class="muted">{{ "Custom lists:" | t }}</span>
       {% for l in b.lists %}
         <form method="post" action="/settings/list" class="inline-form">
           <input type="hidden" name="action" value="delete">
           <input type="hidden" name="id" value="{{ l.id }}">
           <span class="chip">{{ l.name }}
-            <button type="submit" class="chip-x" aria-label="Delete list">&times;</button>
+            <button type="submit" class="chip-x" aria-label="{{ 'Delete list' | t }}">&times;</button>
           </span>
         </form>
       {% else %}
-        <span class="muted">none</span>
+        <span class="muted">{{ "none" | t }}</span>
       {% endfor %}
       <form method="post" action="/settings/list" class="inline-form">
         <input type="hidden" name="action" value="create">
         <input type="hidden" name="board_id" value="{{ b.id }}">
-        <input type="text" name="name" placeholder="+ list" size="10" required>
-        <button type="submit" class="btn-plain">Add</button>
+        <input type="text" name="name" placeholder="{{ '+ list' | t }}" size="10" required>
+        <button type="submit" class="btn-plain">{{ "Add" | t }}</button>
       </form>
     </div>
 
@@ -100,16 +98,16 @@
       <input type="hidden" name="action" value="delete">
       <input type="hidden" name="id" value="{{ b.id }}">
       <button type="submit" class="btn-danger"
-              onclick="return confirm('Remove board {{ b.name }}?')">Remove board</button>
+              onclick="return confirm('{{ 'Remove board' | t }} {{ b.name }}?')">{{ "Remove board" | t }}</button>
     </form>
   </div>
   {% else %}
-  <p class="muted">No boards yet.</p>
+  <p class="muted">{{ "No boards yet." | t }}</p>
   {% endfor %}
 
   <form method="post" action="/settings/board" class="add-form">
     <input type="hidden" name="action" value="create">
-    <input type="text" name="name" placeholder="New board name" required>
+    <input type="text" name="name" placeholder="{{ 'New board name' | t }}" required>
     <span class="members">
       {% for u in users %}
         <label class="inline-check">
@@ -117,49 +115,57 @@
         </label>
       {% endfor %}
     </span>
-    <button type="submit" class="btn-primary">Add board</button>
+    <button type="submit" class="btn-primary">{{ "Add board" | t }}</button>
   </form>
 </section>
 
 <section class="panel">
-  <h2>Display</h2>
-  <p class="muted">Applies to everyone. Ordering belongs to the column, not to
-     the person reading it — two people looking at the same shared list should
-     not see it in two different orders.</p>
+  <h2>{{ "Display" | t }}</h2>
+  <p class="muted">{{ "Applies to everyone. Ordering belongs to the column, not to the person reading it — two people looking at the same shared list should not see it in two different orders." | t }}</p>
   <form method="post" action="/settings/display" class="display-form">
     <label class="inline-check">
       <input type="checkbox" name="move_completed_to_bottom"
              {% if move_completed %}checked{% endif %}>
-      Move completed tasks to the bottom
+      {{ "Move completed tasks to the bottom" | t }}
+    </label>
+
+    <label class="inline-select">
+      {{ "Language" | t }}
+      <select name="language">
+        {% for code, label in languages %}
+          <option value="{{ code }}" {% if code == language %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
     </label>
 
     <fieldset class="choices">
-      <legend>When a day has passed and a task is still unticked</legend>
+      <legend>{{ "When a day has passed and a task is still unticked" | t }}</legend>
       <label class="inline-check">
         <input type="radio" name="overdue_action" value="list"
                {% if overdue_action == "list" %}checked{% endif %}>
-        Move it to a list &mdash; each board gets an <strong>Unfinished</strong>
-        list, so the calendar shows only what is still planned
+        {{ "Move it to a list — each board gets an" | t }}
+        <strong>{{ "Unfinished" | t }}</strong>
+        {{ "list, so the calendar shows only what is still planned" | t }}
       </label>
       <label class="inline-check">
         <input type="radio" name="overdue_action" value="today"
                {% if overdue_action == "today" %}checked{% endif %}>
-        Move it to today, and again each day it stays unticked
+        {{ "Move it to today, and again each day it stays unticked" | t }}
       </label>
       <label class="inline-check">
         <input type="radio" name="overdue_action" value="leave"
                {% if overdue_action == "leave" %}checked{% endif %}>
-        Leave it on the day it was written for
+        {{ "Leave it on the day it was written for" | t }}
       </label>
     </fieldset>
 
-    <button type="submit" class="btn-primary">Save</button>
+    <button type="submit" class="btn-primary">{{ "Save" | t }}</button>
   </form>
 </section>
 
 <section class="panel">
-  <h2>This browser</h2>
-  <p>You are currently <strong>{{ me.name if me else "nobody" }}</strong>.
-     <a href="/pick">Switch identity</a></p>
+  <h2>{{ "This browser" | t }}</h2>
+  <p>{{ "You are currently" | t }} <strong>{{ me.name if me else ("nobody" | t) }}</strong>.
+     <a href="/pick">{{ "Switch identity" | t }}</a></p>
 </section>
 {% endblock %}

@@ -18,6 +18,12 @@ fn now() -> String {
 /// migration of shape — only a new key.
 pub const MOVE_COMPLETED: &str = "move_completed_to_bottom";
 
+/// Which language the interface is written in. App-wide: a household picks a
+/// language once, and the pages where it matters most — the identity picker,
+/// an empty settings page — are rendered before anyone has an identity to
+/// hang a preference on.
+pub const LANGUAGE: &str = "language";
+
 /// What becomes of an undone task once its day has gone by (D23).
 pub const OVERDUE_ACTION: &str = "overdue_action";
 
@@ -35,9 +41,11 @@ fn overdue_list_key(board_id: i64) -> String {
     format!("overdue_list:{board_id}")
 }
 
-/// The name a swept-into list is created with. Renaming it later is fine — the
-/// board remembers the list by id, not by name.
-const OVERDUE_LIST_NAME: &str = "Unfinished";
+/// The name a swept-into list is created with, in English, for the caller to
+/// translate. Renaming it later is fine — the board remembers the list by id,
+/// not by name — which is also why switching language does not rename one that
+/// already exists.
+pub const OVERDUE_LIST_NAME: &str = "Unfinished";
 
 pub fn get_setting(conn: &Connection, key: &str, default: &str) -> Result<String> {
     let raw: Option<String> = conn
@@ -362,7 +370,7 @@ pub fn delete_list(conn: &Connection, id: i64) -> Result<()> {
 ///
 /// Tracked by id, so renaming it keeps working; if it has been deleted, a fresh
 /// one is made rather than resurrecting a tombstone.
-pub fn ensure_overdue_list(conn: &Connection, board_id: i64) -> Result<i64> {
+pub fn ensure_overdue_list(conn: &Connection, board_id: i64, name: &str) -> Result<i64> {
     let key = overdue_list_key(board_id);
     if let Ok(id) = get_setting(conn, &key, "")?.parse::<i64>()
         && let Some(l) = list(conn, id)?
@@ -371,7 +379,7 @@ pub fn ensure_overdue_list(conn: &Connection, board_id: i64) -> Result<i64> {
     {
         return Ok(id);
     }
-    let id = create_custom_list(conn, board_id, OVERDUE_LIST_NAME)?;
+    let id = create_custom_list(conn, board_id, name)?;
     set_setting(conn, &key, &id.to_string())?;
     Ok(id)
 }
@@ -407,6 +415,7 @@ pub fn sweep_overdue(
     board_id: i64,
     today: &str,
     action: &str,
+    list_name: &str,
 ) -> Result<Vec<i64>> {
     if action != OVERDUE_TODAY && action != OVERDUE_LIST {
         return Ok(Vec::new());
@@ -419,7 +428,7 @@ pub fn sweep_overdue(
     let dest = if action == OVERDUE_TODAY {
         ensure_day_list(conn, board_id, today)?
     } else {
-        ensure_overdue_list(conn, board_id)?
+        ensure_overdue_list(conn, board_id, list_name)?
     };
 
     let mut touched = vec![dest];
@@ -1005,7 +1014,7 @@ mod tests {
         let board = create_board(&conn, "B").unwrap();
         let ids = overdue_fixture(&conn, board, author);
 
-        let touched = sweep_overdue(&conn, board, TODAY, OVERDUE_LEAVE).unwrap();
+        let touched = sweep_overdue(&conn, board, TODAY, OVERDUE_LEAVE, OVERDUE_LIST_NAME).unwrap();
         assert_eq!(touched, Vec::<i64>::new());
         assert_eq!(overdue_tasks(&conn, board, TODAY).unwrap().len(), 2);
         assert!(task(&conn, ids[0]).unwrap().is_some());
@@ -1017,7 +1026,7 @@ mod tests {
         let board = create_board(&conn, "B").unwrap();
         overdue_fixture(&conn, board, author);
 
-        sweep_overdue(&conn, board, TODAY, OVERDUE_TODAY).unwrap();
+        sweep_overdue(&conn, board, TODAY, OVERDUE_TODAY, OVERDUE_LIST_NAME).unwrap();
         assert_eq!(overdue_tasks(&conn, board, TODAY).unwrap().len(), 0);
 
         let today = ensure_day_list(&conn, board, TODAY).unwrap();
@@ -1040,10 +1049,10 @@ mod tests {
         let board = create_board(&conn, "B").unwrap();
         overdue_fixture(&conn, board, author);
 
-        sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap();
+        sweep_overdue(&conn, board, TODAY, OVERDUE_LIST, OVERDUE_LIST_NAME).unwrap();
         assert_eq!(overdue_tasks(&conn, board, TODAY).unwrap().len(), 0);
 
-        let dest = ensure_overdue_list(&conn, board).unwrap();
+        let dest = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
         let titles: Vec<String> = tasks_for_list(&conn, dest, false)
             .unwrap()
             .into_iter()
@@ -1065,8 +1074,8 @@ mod tests {
             let board = create_board(&conn, "B").unwrap();
             overdue_fixture(&conn, board, author);
 
-            sweep_overdue(&conn, board, TODAY, action).unwrap();
-            let second = sweep_overdue(&conn, board, TODAY, action).unwrap();
+            sweep_overdue(&conn, board, TODAY, action, OVERDUE_LIST_NAME).unwrap();
+            let second = sweep_overdue(&conn, board, TODAY, action, OVERDUE_LIST_NAME).unwrap();
             assert_eq!(second, Vec::<i64>::new(), "{action} was not idempotent");
         }
     }
@@ -1077,7 +1086,7 @@ mod tests {
         let board = create_board(&conn, "B").unwrap();
         let ids = overdue_fixture(&conn, board, author);
 
-        sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap();
+        sweep_overdue(&conn, board, TODAY, OVERDUE_LIST, OVERDUE_LIST_NAME).unwrap();
         let done = task(&conn, ids[2]).unwrap().unwrap();
         let its_list = list(&conn, done.list_id).unwrap().unwrap();
         assert_eq!(
@@ -1095,7 +1104,7 @@ mod tests {
         overdue_fixture(&conn, mine, author);
         overdue_fixture(&conn, theirs, author);
 
-        sweep_overdue(&conn, mine, TODAY, OVERDUE_LIST).unwrap();
+        sweep_overdue(&conn, mine, TODAY, OVERDUE_LIST, OVERDUE_LIST_NAME).unwrap();
         assert!(overdue_tasks(&conn, mine, TODAY).unwrap().is_empty());
         assert_eq!(
             overdue_tasks(&conn, theirs, TODAY).unwrap().len(),
@@ -1110,13 +1119,17 @@ mod tests {
         let one = create_board(&conn, "One").unwrap();
         let two = create_board(&conn, "Two").unwrap();
 
-        let a = ensure_overdue_list(&conn, one).unwrap();
+        let a = ensure_overdue_list(&conn, one, OVERDUE_LIST_NAME).unwrap();
         assert_eq!(
             a,
-            ensure_overdue_list(&conn, one).unwrap(),
+            ensure_overdue_list(&conn, one, OVERDUE_LIST_NAME).unwrap(),
             "reused, not remade"
         );
-        assert_ne!(a, ensure_overdue_list(&conn, two).unwrap(), "one per board");
+        assert_ne!(
+            a,
+            ensure_overdue_list(&conn, two, OVERDUE_LIST_NAME).unwrap(),
+            "one per board"
+        );
         assert_eq!(custom_lists(&conn, one).unwrap().len(), 1);
     }
 
@@ -1124,10 +1137,10 @@ mod tests {
     fn renaming_the_list_keeps_it_as_the_target() {
         let (conn, _, _, _) = fixture();
         let board = create_board(&conn, "B").unwrap();
-        let id = ensure_overdue_list(&conn, board).unwrap();
+        let id = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
         rename_list(&conn, id, "Backlog").unwrap();
         assert_eq!(
-            ensure_overdue_list(&conn, board).unwrap(),
+            ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap(),
             id,
             "tracked by id"
         );
@@ -1137,10 +1150,10 @@ mod tests {
     fn deleting_the_list_makes_a_fresh_one() {
         let (conn, _, _, _) = fixture();
         let board = create_board(&conn, "B").unwrap();
-        let first = ensure_overdue_list(&conn, board).unwrap();
+        let first = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
         delete_list(&conn, first).unwrap();
 
-        let second = ensure_overdue_list(&conn, board).unwrap();
+        let second = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
         assert_ne!(second, first, "a tombstone is not resurrected");
         assert!(list(&conn, second).unwrap().is_some());
     }
@@ -1153,7 +1166,7 @@ mod tests {
         create_task(&conn, today, "for today", author).unwrap();
 
         assert_eq!(
-            sweep_overdue(&conn, board, TODAY, OVERDUE_LIST).unwrap(),
+            sweep_overdue(&conn, board, TODAY, OVERDUE_LIST, OVERDUE_LIST_NAME).unwrap(),
             Vec::<i64>::new()
         );
         assert_eq!(

@@ -15,6 +15,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::calendar;
+use crate::i18n::{self, Locale};
 use crate::models::{Task, User};
 use crate::queries;
 
@@ -125,6 +126,19 @@ pub struct ColumnView {
     pub hidden: usize,
 }
 
+/// "3 Sep" — but German writes "3. Sep", so the punctuation is part of the
+/// translation rather than baked into a format string here.
+pub fn day_label(date: chrono::NaiveDate, loc: &Locale) -> String {
+    use chrono::Datelike;
+    i18n::fill(
+        loc.t("{day} {month}"),
+        &[
+            ("day", &date.day().to_string()),
+            ("month", loc.t(calendar::month_abbrev(date))),
+        ],
+    )
+}
+
 pub fn task_view(task: &Task, authors: &[User]) -> TaskView {
     let author = authors.iter().find(|u| u.id == task.author_id);
     TaskView {
@@ -183,6 +197,7 @@ pub fn load_column(
     board_id: i64,
     key: ColumnKey,
     density: &'static str,
+    loc: &Locale,
 ) -> Result<ColumnView> {
     let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)
         .context("reading the move-completed setting")?;
@@ -195,13 +210,13 @@ pub fn load_column(
 
     let (heading, subheading) = match key {
         ColumnKey::Day(d) => (
-            calendar::weekday_label(d).to_string(),
-            d.format("%-d %b").to_string(),
+            loc.t(calendar::weekday_label(d)).to_string(),
+            day_label(d, loc),
         ),
         ColumnKey::List(id) => (
             queries::list(conn, id)?
                 .and_then(|l| l.name)
-                .unwrap_or_else(|| "List".into()),
+                .unwrap_or_else(|| loc.t("List").to_string()),
             String::new(),
         ),
     };

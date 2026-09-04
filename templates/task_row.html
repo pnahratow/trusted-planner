@@ -8,7 +8,7 @@
         hx-target="closest .column" hx-swap="outerHTML">
     <button type="submit" class="check" role="checkbox"
             aria-checked="{{ 'true' if task.done else 'false' }}"
-            aria-label="{{ 'Mark not done' if task.done else 'Mark done' }}">
+            aria-label="{{ ('Mark not done' if task.done else 'Mark done') | t }}">
       {% if task.done %}&#10003;{% endif %}
     </button>
   </form>
@@ -16,9 +16,9 @@
   <button class="task-title" type="button"
           hx-get="/task/{{ task.id }}/edit"
           hx-target="closest .task" hx-swap="outerHTML"
-          title="{{ task.notes if task.notes else 'Click to edit' }}">
+          title="{{ task.notes if task.notes else ('Click to edit' | t) }}">
     {{ task.title }}
-    {% if task.notes %}<span class="has-notes" aria-label="has notes">&#9998;</span>{% endif %}
+    {% if task.notes %}<span class="has-notes" aria-label="{{ 'has notes' | t }}">&#9998;</span>{% endif %}
   </button>
 
   {# No confirmation dialog: it interrupts the common case to guard the rare
@@ -26,6 +26,6 @@
   <form class="task-delete"
         hx-post="/task/{{ task.id }}/delete"
         hx-target="closest .column" hx-swap="outerHTML">
-    <button type="submit" class="icon-btn" aria-label="Delete task">&times;</button>
+    <button type="submit" class="icon-btn" aria-label="{{ 'Delete task' | t }}">&times;</button>
   </form>
 </li>

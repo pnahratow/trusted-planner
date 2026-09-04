@@ -86,6 +86,62 @@ pub fn timezone() -> Tz {
     ZONE.get().copied().unwrap_or(DEFAULT_ZONE)
 }
 
+/// Full weekday name, for the day panel's heading.
+pub fn weekday_name(date: NaiveDate) -> &'static str {
+    match date.weekday() {
+        Weekday::Mon => "Monday",
+        Weekday::Tue => "Tuesday",
+        Weekday::Wed => "Wednesday",
+        Weekday::Thu => "Thursday",
+        Weekday::Fri => "Friday",
+        Weekday::Sat => "Saturday",
+        Weekday::Sun => "Sunday",
+    }
+}
+
+/// Short month label for a column subheading.
+///
+/// Spelled out here rather than taken from `chrono`'s `%b`, because these are
+/// keys the translation file has to be able to name — and there are exactly
+/// twelve of them, forever.
+pub fn month_abbrev(date: NaiveDate) -> &'static str {
+    MONTHS[date.month0() as usize].0
+}
+
+/// Full month name, for the day panel's heading.
+pub fn month_name(date: NaiveDate) -> &'static str {
+    MONTHS[date.month0() as usize].1
+}
+
+const MONTHS: [(&str, &str); 12] = [
+    ("Jan", "January"),
+    ("Feb", "February"),
+    ("Mar", "March"),
+    ("Apr", "April"),
+    ("May", "May"),
+    ("Jun", "June"),
+    ("Jul", "July"),
+    ("Aug", "August"),
+    ("Sep", "September"),
+    ("Oct", "October"),
+    ("Nov", "November"),
+    ("Dec", "December"),
+];
+
+/// Every label a date can render as. The translation test walks this, so a
+/// thirteenth month cannot appear untranslated.
+#[cfg(test)]
+pub fn all_date_words() -> Vec<&'static str> {
+    let mut words: Vec<&'static str> = MONTHS.iter().flat_map(|(a, b)| [*a, *b]).collect();
+    let monday = NaiveDate::from_ymd_opt(2026, 8, 31).expect("a real Monday");
+    for i in 0..7 {
+        let d = monday + Duration::days(i);
+        words.push(weekday_label(d));
+        words.push(weekday_name(d));
+    }
+    words
+}
+
 pub fn today() -> NaiveDate {
     chrono::Utc::now().with_timezone(&timezone()).date_naive()
 }
@@ -159,6 +215,36 @@ mod tests {
         let monday = d("2026-08-31");
         assert_eq!(week_of(monday), weeks_from(monday, 1));
         assert_eq!(week_of(monday), weeks_from(monday, VIEW_WEEKS)[..7]);
+    }
+
+    #[test]
+    fn month_labels_line_up_with_the_month() {
+        for (n, (abbrev, name)) in MONTHS.iter().enumerate() {
+            let first = NaiveDate::from_ymd_opt(2026, u32::try_from(n).unwrap() + 1, 1).unwrap();
+            assert_eq!(month_abbrev(first), *abbrev);
+            assert_eq!(month_name(first), *name);
+            assert!(name.starts_with(abbrev) || *name == "March" || *name == "May");
+        }
+        assert_eq!(month_abbrev(d("2026-09-04")), "Sep");
+        assert_eq!(month_name(d("2026-12-31")), "December");
+    }
+
+    #[test]
+    fn weekday_labels_agree_with_their_full_names() {
+        let monday = d("2026-08-31");
+        assert_eq!(weekday_label(monday), "Mon");
+        assert_eq!(weekday_name(monday), "Monday");
+        assert_eq!(weekday_name(monday + Duration::days(6)), "Sunday");
+    }
+
+    /// 12 abbreviations + 12 names + 7 short days + 7 long days.
+    #[test]
+    fn every_date_word_is_listed_for_the_translators() {
+        let words = all_date_words();
+        assert_eq!(words.len(), 38);
+        for expected in ["Jan", "December", "Mon", "Sunday"] {
+            assert!(words.contains(&expected), "{expected} should be listed");
+        }
     }
 
     #[test]

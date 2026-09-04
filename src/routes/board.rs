@@ -9,7 +9,8 @@ use axum_extra::extract::CookieJar;
 
 use crate::calendar;
 use crate::error::AppResult;
-use crate::routes::{current_user, render, theme_cycle};
+use crate::i18n::{self, Locale};
+use crate::routes::{current_user, locale, render, theme_cycle};
 use crate::views::{self, COMPACT, ColumnKey, FULL, density_for};
 use crate::{AppState, queries};
 use serde::Deserialize;
@@ -61,11 +62,17 @@ async fn index(State(state): State<AppState>, jar: CookieJar) -> AppResult {
 /// stay correct, and looking at the board is exactly the moment the answer has
 /// to be right. The sweep is idempotent, so doing it on every render is safe
 /// and usually finds nothing.
-fn sweep_overdue(state: &AppState, board_id: i64) -> anyhow::Result<()> {
+fn sweep_overdue(state: &AppState, board_id: i64, loc: &Locale) -> anyhow::Result<()> {
     let today = calendar::fmt(calendar::today());
+    // The list is named when it is first made, in the language in force then.
+    // It is an ordinary list afterwards: renaming it is the way to change it,
+    // and switching language later does not rename what already exists.
+    let list_name = loc.t(queries::OVERDUE_LIST_NAME).to_string();
     let touched = state.db.transaction(|tx| -> anyhow::Result<_> {
         let action = queries::get_setting(tx, queries::OVERDUE_ACTION, queries::OVERDUE_LIST)?;
-        Ok(queries::sweep_overdue(tx, board_id, &today, &action)?)
+        Ok(queries::sweep_overdue(
+            tx, board_id, &today, &action, &list_name,
+        )?)
     })?;
 
     // Tell other browsers which columns moved under them.
@@ -80,6 +87,21 @@ fn sweep_overdue(state: &AppState, board_id: i64) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// "31 Aug – 6 Sep 2026". The year only on the far end, where it settles which
+/// year the whole range is in without repeating itself.
+fn range_label(from: chrono::NaiveDate, to: chrono::NaiveDate, loc: &Locale) -> String {
+    use chrono::Datelike;
+    let end = i18n::fill(
+        loc.t("{day} {month} {year}"),
+        &[
+            ("day", &to.day().to_string()),
+            ("month", loc.t(calendar::month_abbrev(to))),
+            ("year", &to.year().to_string()),
+        ],
+    );
+    format!("{} – {end}", views::day_label(from, loc))
 }
 
 /// One entry in the board picker: the board, and the URL that opens it.
@@ -277,8 +299,9 @@ async fn week(
         return Ok(Redirect::to("/").into_response());
     };
 
+    let loc = locale(&state);
     let dates = calendar::week_of(start);
-    sweep_overdue(&state, board_id).context("applying the overdue rule")?;
+    sweep_overdue(&state, board_id, &loc).context("applying the overdue rule")?;
     let grid = load_grid(
         &state,
         &me,
@@ -286,8 +309,8 @@ async fn week(
         &dates,
         |d| {
             (
-                calendar::weekday_label(d).to_string(),
-                d.format("%-d %b").to_string(),
+                loc.t(calendar::weekday_label(d)).to_string(),
+                views::day_label(d, &loc),
             )
         },
         FULL, // a week column has the height of the screen; nothing is hidden
@@ -302,6 +325,7 @@ async fn week(
 
     render(
         &state,
+        &loc,
         "week.html",
         minijinja::context! {
             theme => me.theme,
@@ -331,12 +355,8 @@ async fn week(
             // The four-week grid must start on a Monday for its rows to line
             // up, so switching snaps to the Monday of the week you are on.
             switch_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(start))),
-            switch_label => "4 weeks",
-            range_label => format!(
-                "{} – {}",
-                dates[0].format("%-d %b"),
-                dates.last().expect("a week has seven days").format("%-d %b %Y")
-            ),
+            switch_label => loc.t("4 weeks"),
+            range_label => range_label(dates[0], *dates.last().expect("a week has seven days"), &loc),
         },
     )
 }
@@ -359,8 +379,9 @@ async fn four_weeks(
         return Ok(Redirect::to("/").into_response());
     };
 
+    let loc = locale(&state);
     let dates = calendar::weeks_from(monday, calendar::VIEW_WEEKS);
-    sweep_overdue(&state, board_id).context("applying the overdue rule")?;
+    sweep_overdue(&state, board_id, &loc).context("applying the overdue rule")?;
     let grid = load_grid(
         &state,
         &me,
@@ -368,7 +389,12 @@ async fn four_weeks(
         &dates,
         // Day number plus month, always: four weeks can span three months, and
         // a bare number does not say which one you are looking at.
-        |d| (d.format("%-d").to_string(), d.format("%b").to_string()),
+        |d| {
+            (
+                d.format("%-d").to_string(),
+                loc.t(calendar::month_abbrev(d)).to_string(),
+            )
+        },
         COMPACT,
     )
     .with_context(|| format!("loading board {board_id} for four weeks from {monday}"))?;
@@ -391,6 +417,7 @@ async fn four_weeks(
 
     render(
         &state,
+        &loc,
         "weeks.html",
         minijinja::context! {
             theme => me.theme,
@@ -405,18 +432,17 @@ async fn four_weeks(
             cells => grid.days,
             lists => grid.lists,
             show_colour => grid.show_colour,
-            weekday_names => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            weekday_names => dates[..7]
+                .iter()
+                .map(|d| loc.t(calendar::weekday_label(*d)))
+                .collect::<Vec<_>>(),
             self_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday)),
             prev_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday - step)),
             next_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday + step)),
             today_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(calendar::today()))),
             switch_url => format!("/b/{board_id}/w/{}", calendar::fmt(monday)),
-            switch_label => "Week",
-            range_label => format!(
-                "{} – {}",
-                monday.format("%-d %b"),
-                last.format("%-d %b %Y")
-            ),
+            switch_label => loc.t("Week"),
+            range_label => range_label(monday, last, &loc),
         },
     )
 }
@@ -442,7 +468,7 @@ async fn column_fragment(
     } else {
         FULL
     };
-    render_column(&state, board_id, key, page)
+    render_column(&state, &locale(&state), board_id, key, page)
 }
 
 /// One day in full, opened from a month cell's "+N more". Deliberately the
@@ -456,24 +482,33 @@ async fn day_panel(
         return Ok((axum::http::StatusCode::BAD_REQUEST, "bad date\n").into_response());
     };
     let key = ColumnKey::Day(date);
+    let loc = locale(&state);
 
     let (col, show_colour) = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             let show_colour = queries::board_member_count(conn, board_id)? > 1;
-            let col = views::load_column(conn, board_id, key, FULL)?;
+            let col = views::load_column(conn, board_id, key, FULL, &loc)?;
             Ok((col, show_colour))
         })
         .with_context(|| format!("loading the day panel for {date}"))?;
 
     render(
         &state,
+        &loc,
         "day_panel.html",
         minijinja::context! {
             col => col,
             board_id => board_id,
             show_colour => show_colour,
-            day_label => date.format("%A %-d %B").to_string(),
+            day_label => i18n::fill(
+                loc.t("{weekday} {day} {month}"),
+                &[
+                    ("weekday", loc.t(calendar::weekday_name(date))),
+                    ("day", &chrono::Datelike::day(&date).to_string()),
+                    ("month", loc.t(calendar::month_name(date))),
+                ],
+            ),
         },
     )
 }
@@ -484,6 +519,7 @@ async fn day_panel(
 /// comes back full size.
 pub fn render_column(
     state: &AppState,
+    loc: &Locale,
     board_id: i64,
     key: ColumnKey,
     page_density: &str,
@@ -493,13 +529,14 @@ pub fn render_column(
         .db
         .with(|conn| -> anyhow::Result<_> {
             let show_colour = queries::board_member_count(conn, board_id)? > 1;
-            let col = views::load_column(conn, board_id, key, density)?;
+            let col = views::load_column(conn, board_id, key, density, loc)?;
             Ok((col, show_colour))
         })
         .with_context(|| format!("loading column {} of board {board_id}", key.as_string()))?;
 
     render(
         state,
+        loc,
         "column.html",
         minijinja::context! {
             col => col,

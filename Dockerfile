@@ -40,11 +40,14 @@ WORKDIR /app
 COPY --from=build /src/target/release/trusted-planner /usr/local/bin/trusted-planner
 COPY templates ./templates
 COPY static ./static
+COPY locales ./locales
 
-# Templates are read from disk on every render, so bind-mounting over this
-# directory lets you edit the markup on the NAS without rebuilding anything.
+# Templates and translations are read from disk on every render, so
+# bind-mounting over either directory lets you edit the markup or reword the
+# German on the NAS without rebuilding anything.
 ENV PLANNER_TEMPLATE_DIR=/app/templates \
     PLANNER_STATIC_DIR=/app/static \
+    PLANNER_LOCALE_DIR=/app/locales \
     PLANNER_DATA_DIR=/data \
     PLANNER_PORT=8080
 

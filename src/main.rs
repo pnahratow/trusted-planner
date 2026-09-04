@@ -7,6 +7,7 @@ mod calendar;
 mod db;
 mod error;
 mod events;
+mod i18n;
 mod models;
 mod queries;
 mod routes;
@@ -23,6 +24,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::db::Db;
 use crate::events::ChangeLog;
+use crate::i18n::Locales;
 use crate::templates::Templates;
 
 /// Everything a handler needs, cloned cheaply per request.
@@ -30,6 +32,7 @@ use crate::templates::Templates;
 pub struct AppState {
     pub db: Arc<Db>,
     pub tmpl: Templates,
+    pub locales: Locales,
     /// Column invalidations, polled by connected browsers.
     pub changes: Arc<ChangeLog>,
 }
@@ -40,6 +43,7 @@ struct Config {
     data_dir: PathBuf,
     template_dir: PathBuf,
     static_dir: PathBuf,
+    locale_dir: PathBuf,
     port: u16,
     /// IANA zone name; unset means the calendar's own default (Europe/Berlin).
     timezone: Option<String>,
@@ -55,6 +59,7 @@ impl Config {
             data_dir: path("PLANNER_DATA_DIR", "/data"),
             template_dir: path("PLANNER_TEMPLATE_DIR", "templates"),
             static_dir: path("PLANNER_STATIC_DIR", "static"),
+            locale_dir: path("PLANNER_LOCALE_DIR", "locales"),
             port: std::env::var("PLANNER_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
@@ -135,6 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         db: Arc::clone(&db),
         tmpl: Templates::new(&cfg.template_dir),
+        locales: Locales::new(&cfg.locale_dir),
         changes: Arc::new(ChangeLog::new()),
     };
 

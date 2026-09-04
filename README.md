@@ -27,6 +27,7 @@ for the current week.
 | `PLANNER_PORT` | `8080` | Listen port |
 | `PLANNER_TEMPLATE_DIR` | `templates` | Templates, read from disk at render time |
 | `PLANNER_STATIC_DIR` | `static` | CSS, JS, vendored libraries |
+| `PLANNER_LOCALE_DIR` | `locales` | Translation files, one JSON per language |
 | `PLANNER_TZ` (or `TZ`) | `Europe/Berlin` | IANA zone the calendar is read in |
 
 Templates are re-read on every render, so editing anything in `templates/` shows
@@ -130,6 +131,32 @@ sits idle for days should not need a scheduler and a timezone-aware cron to be
 correct, and opening the board is exactly when the answer has to be right. It
 is idempotent, so running it on every page load costs a query that usually
 finds nothing.
+
+## Language
+
+English or German, chosen once under Settings → Display for everyone. English
+is the source language: the English words are written directly in the
+templates, and `locales/de.json` maps each of them to its German. A string with
+no German next to it renders as English rather than as a broken placeholder, so
+a half-finished translation is a mild embarrassment instead of an outage.
+
+Adding a language is a file: copy `de.json` to `fr.json`, translate the right
+hand side, add the code to `LANGUAGES` in `src/i18n.rs`. Nothing else knows how
+many languages there are.
+
+Dates are translated too, and not only their words — German writes "3. Sep"
+where English writes "3 Sep", so the punctuation lives in the translation as
+`"{day} {month}": "{day}. {month}"` rather than in a format string in the code.
+
+Three tests keep this honest, because every failure mode here is silent: one
+that every string the app shows has German, one that the file has nothing left
+in it that the app no longer says, and one that no template shows a string it
+forgot to mark for translation at all.
+
+Code, comments, commit messages, this README and everything in the database
+stay in English. The only exception is a list the app creates for you — the
+`Unfinished` list is named in whatever language was in force when it first
+appeared, because it is an ordinary list from then on and yours to rename.
 
 ## Theme
 

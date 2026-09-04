@@ -5,9 +5,9 @@
 
 <div id="undo-bar" class="undo-bar" hx-swap-oob="true">
   {% if undo_id %}
-  <span class="undo-text">Deleted &ldquo;{{ undo_title }}&rdquo;</span>
+  <span class="undo-text">{{ "Deleted" | t }} &ldquo;{{ undo_title }}&rdquo;</span>
   <button type="button" class="undo-btn"
           hx-post="/task/{{ undo_id }}/restore"
-          hx-target="#col-{{ col.key }}" hx-swap="outerHTML">Undo</button>
+          hx-target="#col-{{ col.key }}" hx-swap="outerHTML">{{ "Undo" | t }}</button>
   {% endif %}
 </div>

@@ -22,10 +22,14 @@ impl Templates {
         }
     }
 
+    /// `locale` is consumed here because the `t` filter holds it for the
+    /// length of the render: one lookup table, built once, for every string on
+    /// the page.
     pub fn render<S: serde::Serialize>(
         &self,
         name: &str,
         ctx: S,
+        locale: crate::i18n::Locale,
     ) -> Result<String, minijinja::Error> {
         let mut env = Environment::new();
         // Strict: a name the context does not supply is an error, not a silent
@@ -34,6 +38,9 @@ impl Templates {
         // because the fragment route did supply the name. Fail loudly instead.
         env.set_undefined_behavior(UndefinedBehavior::Strict);
         env.set_loader(path_loader(&self.dir));
+        // `{{ "Today" | t }}` — the English text is the key, so a template
+        // reads the same whether or not a translation exists for it.
+        env.add_filter("t", move |text: &str| locale.t(text).to_string());
         env.get_template(name)?.render(ctx)
     }
 }

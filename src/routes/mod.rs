@@ -13,6 +13,7 @@ use axum_extra::extract::CookieJar;
 use crate::AppState;
 use crate::error::AppResult;
 use crate::models::User;
+use crate::queries;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -86,16 +87,44 @@ pub fn theme_cycle(current: &str) -> (&'static str, &'static str) {
     }
 }
 
+/// The words in force, from the app-wide setting.
+///
+/// A read per render, which is the same single indexed row every page already
+/// fetches twice over; the alternative is caching a value that has to be
+/// invalidated when someone changes it in another tab.
+pub fn locale(state: &AppState) -> crate::i18n::Locale {
+    let lang = state
+        .db
+        .with(|conn| queries::get_setting(conn, queries::LANGUAGE, crate::i18n::DEFAULT))
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "could not read the language setting");
+            crate::i18n::DEFAULT.to_string()
+        });
+    state.locales.load(&lang)
+}
+
 /// Renders a template. Templates are read from disk at render time and run
 /// under strict-undefined, so a typo or a missing context name surfaces here
 /// as a 500 with the template named, rather than taking the process down or
 /// silently rendering a hole.
-pub fn render<S: serde::Serialize>(state: &AppState, name: &str, ctx: S) -> AppResult {
+pub fn render<S: serde::Serialize>(
+    state: &AppState,
+    loc: &crate::i18n::Locale,
+    name: &str,
+    ctx: S,
+) -> AppResult {
     use axum::response::{Html, IntoResponse};
+
+    // `lang` is merged in here rather than by every handler, so no context can
+    // forget it and no template has to guard against its absence.
+    let ctx = minijinja::context! {
+        lang => loc.lang(),
+        ..minijinja::Value::from_serialize(&ctx)
+    };
 
     let html = state
         .tmpl
-        .render(name, ctx)
+        .render(name, ctx, loc.clone())
         .with_context(|| format!("rendering template {name}"))?;
     Ok(Html(html).into_response())
 }
