@@ -220,6 +220,18 @@ pub fn set_board_members(conn: &Connection, board_id: i64, user_ids: &[i64]) -> 
     Ok(())
 }
 
+/// Whether this person is on this board's member list. The board picker and
+/// the identity switch both ask, because a board you are not a member of is
+/// meant to be out of your way (D7/D8) — not out of your reach.
+pub fn is_board_member(conn: &Connection, board_id: i64, user_id: i64) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM board_members WHERE board_id = ?1 AND user_id = ?2",
+        (board_id, user_id),
+        |r| r.get(0),
+    )?;
+    Ok(count > 0)
+}
+
 pub fn board_member_count(conn: &Connection, board_id: i64) -> Result<i64> {
     conn.query_row(
         "SELECT COUNT(*) FROM board_members WHERE board_id = ?1",
@@ -978,6 +990,8 @@ mod tests {
         set_board_members(&conn, b, &[author]).unwrap();
         assert_eq!(board_member_ids(&conn, b).unwrap(), vec![author]);
         assert_eq!(board_member_count(&conn, b).unwrap(), 1);
+        assert!(is_board_member(&conn, b, author).unwrap());
+        assert!(!is_board_member(&conn, b, u2).unwrap());
         assert!(
             boards_for_user(&conn, author)
                 .unwrap()

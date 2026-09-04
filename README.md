@@ -8,6 +8,13 @@ no accounts.
 > A "personal" board is out of the way, not protected. Do not store anything
 > genuinely sensitive here.
 
+Out of the way is still worth something, though. The board picker lists the
+boards you are a member of, and switching identity lands you on your own board
+rather than leaving you on someone else's — so nobody has to scroll past
+another person's boards to find theirs. A board you are visiting is named in
+the picker while you are on it, because a picker that does not say where you
+are is worse than one that shows an extra board.
+
 [ARCHITECTURE.md](ARCHITECTURE.md) is the tour of the source: the stack, the
 layout, and the order to read it in.
 

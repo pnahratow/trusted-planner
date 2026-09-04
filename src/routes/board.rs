@@ -104,6 +104,21 @@ fn range_label(from: chrono::NaiveDate, to: chrono::NaiveDate, loc: &Locale) -> 
     format!("{} – {end}", views::day_label(from, loc))
 }
 
+/// The boards to offer, given the one being looked at.
+///
+/// Yours, plus the one you are standing on if it is not among them — which
+/// happens when a link or a switch of identity lands you on someone else's
+/// board. Leaving it out would show the picker naming a board you are not on.
+fn pickable(
+    mut mine: Vec<crate::models::Board>,
+    current: &crate::models::Board,
+) -> Vec<crate::models::Board> {
+    if !mine.iter().any(|b| b.id == current.id) {
+        mine.push(current.clone());
+    }
+    mine
+}
+
 /// One entry in the board picker: the board, and the URL that opens it.
 #[derive(serde::Serialize)]
 struct BoardLink {
@@ -209,7 +224,10 @@ fn load_grid(
             return Ok(None);
         };
         let users = queries::users(conn).context("loading authors")?;
-        let boards = queries::boards(conn).context("loading board list")?;
+        // Your boards, not everyone's: a board you are not a member of is
+        // meant to be out of the way (D7/D8), and a picker listing all of them
+        // is the opposite of that.
+        let boards = queries::boards_for_user(conn, me.id).context("loading board list")?;
         let board_views =
             queries::remembered_views(conn, me.id).context("loading remembered views")?;
 
@@ -278,9 +296,9 @@ fn load_grid(
             .collect();
 
         Ok(Some(Grid {
+            boards: pickable(boards, &board),
             board,
             users,
-            boards,
             board_views,
             days,
             lists,
@@ -580,6 +598,39 @@ mod tests {
 
     /// 2026-09-03 is a Thursday, so a link into the four-week grid has to snap
     /// back to Monday the 31st while a week link keeps the Thursday.
+    /// The picker lists your boards. It also has to name the board you are
+    /// actually on, or it would sit there showing a board you are not looking
+    /// at — which is what happens the moment a link, or a switch of identity,
+    /// puts you somewhere that is not yours.
+    #[test]
+    fn the_picker_offers_your_boards_and_the_one_you_are_on() {
+        let mine = boards();
+        let visiting = Board {
+            id: 9,
+            name: "Someone else's".into(),
+        };
+
+        let offered = pickable(mine.clone(), &visiting);
+        assert_eq!(
+            offered.iter().map(|b| b.id).collect::<Vec<_>>(),
+            [1, 2, 9],
+            "the board being visited is added, at the end"
+        );
+
+        let offered = pickable(mine.clone(), &mine[0]);
+        assert_eq!(
+            offered.iter().map(|b| b.id).collect::<Vec<_>>(),
+            [1, 2],
+            "a board of your own is not listed twice"
+        );
+
+        assert_eq!(
+            pickable(Vec::new(), &visiting).len(),
+            1,
+            "someone with no boards of their own still sees where they are"
+        );
+    }
+
     #[test]
     fn each_board_opens_in_the_view_it_is_read_in() {
         let mut views = HashMap::new();

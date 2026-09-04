@@ -346,20 +346,42 @@ struct WhoamiForm {
     user_id: i64,
     #[serde(default)]
     next: Option<String>,
+    /// The board the picker was on, so we can tell whether it is one of the
+    /// new identity's.
+    #[serde(default)]
+    board: Option<i64>,
 }
 
-async fn whoami(jar: CookieJar, Form(f): Form<WhoamiForm>) -> impl IntoResponse {
+async fn whoami(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(f): Form<WhoamiForm>,
+) -> AppResult {
     let mut cookie = Cookie::new(IDENTITY_COOKIE, f.user_id.to_string());
     cookie.set_path("/");
     cookie.set_same_site(SameSite::Lax);
     // Long-lived on purpose: picking your name should stick across restarts.
     cookie.set_max_age(time::Duration::days(365));
 
+    // Becoming someone else puts you in their world. Staying on a board they
+    // are not a member of would leave them looking at another person's week
+    // with it named in their own picker; `/` lands them on their own board, in
+    // the view they read it in. The boundary is still soft — the URL works if
+    // they type it — but switching identity does not carry them across it.
+    let theirs = match f.board {
+        Some(board_id) => state
+            .db
+            .with(|conn| queries::is_board_member(conn, board_id, f.user_id))
+            .with_context(|| format!("checking membership of board {board_id}"))?,
+        None => true,
+    };
+
     let next = f
         .next
-        .filter(|n| n.starts_with('/'))
+        .filter(|n| theirs && n.starts_with('/'))
         .unwrap_or_else(|| "/".into());
-    (jar.add(cookie), Redirect::to(&next))
+
+    Ok((jar.add(cookie), Redirect::to(&next)).into_response())
 }
 
 /// Shown when nobody has claimed an identity in this browser yet.

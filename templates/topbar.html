@@ -2,6 +2,9 @@
    partial has no idea which view it is decorating. #}
 <form class="picker" method="post" action="/whoami">
   <input type="hidden" name="next" value="{{ self_url | safe }}">
+  {# Which board this was, so becoming someone else can decline to leave them
+     on a board that is not theirs. #}
+  <input type="hidden" name="board" value="{{ board.id }}">
   <label class="sr-only" for="who">{{ "Identity" | t }}</label>
   <select id="who" name="user_id" onchange="this.form.submit()">
     {% for u in users %}
