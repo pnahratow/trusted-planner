@@ -171,25 +171,59 @@ mod tests {
         );
     }
 
-    /// Strings the Rust side looks up, which the template scan below cannot
-    /// see. The date words come from `calendar`; these are the rest.
-    const RUST_KEYS: &[&str] = &[
-        // Date patterns: German moves the punctuation, not just the words.
-        "{day} {month}",
-        "{day} {month} {year}",
-        "{weekday} {day} {month}",
-        // A custom list whose name went missing, and the list the overdue
-        // sweep creates.
-        "List",
+    /// Strings the Rust side asks for by something other than a literal, which
+    /// the scans below cannot see.
+    const INDIRECT_KEYS: &[&str] = &[
+        // `loc.t(queries::OVERDUE_LIST_NAME)` — a constant, not a literal.
         "Todo",
-        // The view toggle's label, which names the grid it switches *to*.
-        "Week",
-        "4 weeks",
         // Theme values, which reach the template as data rather than literals.
-        "system",
-        "light",
-        "dark",
+        "system", "light", "dark",
     ];
+
+    /// Every `.t("...")` in the source. The date words and the handful above
+    /// are asked for indirectly; everything else the Rust side translates is a
+    /// literal, and a literal can be found.
+    fn keys_used_in_rust() -> Vec<String> {
+        let mut keys = Vec::new();
+        let mut dirs = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(dir).expect("src/") {
+                let path = entry.expect("readable entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).expect("readable source");
+                for line in source.lines() {
+                    // Comments talk *about* the call as often as they sit next
+                    // to one, and this file's own doc comment is the proof.
+                    if line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    for chunk in line.split(".t(\"").skip(1) {
+                        if let Some(literal) = chunk.split('"').next() {
+                            keys.push(literal.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        keys
+    }
+
+    /// Everything the app can ask for, from wherever it asks.
+    fn all_keys() -> Vec<String> {
+        keys_used_in_templates()
+            .into_iter()
+            .chain(keys_used_in_rust())
+            .chain(INDIRECT_KEYS.iter().map(|k| (*k).to_string()))
+            .chain(
+                crate::calendar::all_date_words()
+                    .into_iter()
+                    .map(str::to_string),
+            )
+            .collect()
+    }
 
     /// Every `{{ "..." | t }}` in every template.
     fn keys_used_in_templates() -> Vec<String> {
@@ -233,14 +267,8 @@ mod tests {
     #[test]
     fn german_translates_every_string_the_app_shows() {
         let de = german();
-        let mut missing: Vec<String> = keys_used_in_templates()
+        let mut missing: Vec<String> = all_keys()
             .into_iter()
-            .chain(RUST_KEYS.iter().map(|k| (*k).to_string()))
-            .chain(
-                crate::calendar::all_date_words()
-                    .into_iter()
-                    .map(str::to_string),
-            )
             .filter(|key| !de.contains_key(key))
             .collect();
         missing.sort();
@@ -292,15 +320,7 @@ mod tests {
     /// that moved or was reworded, and the German next to it is stale.
     #[test]
     fn german_has_nothing_left_over() {
-        let known: std::collections::HashSet<String> = keys_used_in_templates()
-            .into_iter()
-            .chain(RUST_KEYS.iter().map(|k| (*k).to_string()))
-            .chain(
-                crate::calendar::all_date_words()
-                    .into_iter()
-                    .map(str::to_string),
-            )
-            .collect();
+        let known: std::collections::HashSet<String> = all_keys().into_iter().collect();
         let mut stray: Vec<String> = german()
             .into_keys()
             .filter(|key| !known.contains(key))

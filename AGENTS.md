@@ -44,7 +44,10 @@ Tests may unwrap, expect, panic and index; `clippy.toml` allows exactly that.
   `db.rs::MIGRATIONS`; the SQL is embedded with `include_str!`.
 - **A visible string without `| t`** renders fine and leaves English on the
   German page. The English text is the key; add the German to
-  `locales/de.json`. `cargo test i18n` checks both directions.
+  `locales/de.json`. `cargo test i18n` is the only thing that catches this —
+  it scans the templates and the source for keys, so a new `{{ "…" | t }}` or
+  `loc.t("…")` fails the test until the German exists. Nothing fails at
+  runtime, by design: a missing translation renders as English.
 - **Soft delete is everywhere.** A new `SELECT` filters `deleted_at IS NULL`.
   `task_any` is the single deliberate exception, for undo.
 - **A mutation answers with the re-rendered column**, never with a fragment the
