@@ -190,6 +190,68 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The upgrade path, which is the one that runs on the NAS: a database
+    /// created by an earlier release must gain the newer schema on first open.
+    /// Building it by replaying the older migrations, rather than trusting a
+    /// fresh one, is the only way this test can fail when it should.
+    #[test]
+    fn an_older_database_is_brought_up_to_date_on_open() {
+        let dir = scratch("upgrade");
+        let path = dir.join("planner.sqlite3");
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
+            )
+            .unwrap();
+            // Everything except the last migration: this is the shape the
+            // previous release left behind.
+            for (version, sql) in &MIGRATIONS[..MIGRATIONS.len() - 1] {
+                conn.execute_batch(sql).unwrap();
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO users (name, colour, created_at) VALUES ('Ann', '#e11d48', datetime('now'))",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO boards (name, created_at) VALUES ('Home', datetime('now'))",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open(&path).unwrap();
+
+        let applied: i64 = db
+            .with(|conn| conn.query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0)))
+            .unwrap();
+        assert_eq!(applied, i64::try_from(MIGRATIONS.len()).unwrap());
+
+        // The newest table is usable — and its foreign keys are live, so this
+        // only inserts because the user and board above came through the
+        // upgrade with it.
+        db.with(|conn| {
+            conn.execute(
+                "INSERT INTO board_views (user_id, board_id, view) VALUES (1, 1, '4w')",
+                [],
+            )
+        })
+        .unwrap();
+        let name: String = db
+            .with(|conn| conn.query_row("SELECT name FROM users WHERE id = 1", [], |r| r.get(0)))
+            .unwrap();
+        assert_eq!(name, "Ann");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn migrations_run_once_and_are_idempotent_across_opens() {
         let dir = scratch("migrate");
