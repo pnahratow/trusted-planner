@@ -41,6 +41,8 @@ struct Config {
     template_dir: PathBuf,
     static_dir: PathBuf,
     port: u16,
+    /// IANA zone name; unset means "whatever the host thinks local time is".
+    timezone: Option<String>,
 }
 
 impl Config {
@@ -57,8 +59,36 @@ impl Config {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8080),
+            // `TZ` as well, because that is the name every other container
+            // takes and nobody should have to read this file to find that out.
+            timezone: std::env::var("PLANNER_TZ")
+                .or_else(|_| std::env::var("TZ"))
+                .ok()
+                .filter(|tz| !tz.trim().is_empty()),
         }
     }
+}
+
+/// Make sure the data directory exists and this process can write to it,
+/// before anything tries.
+///
+/// A mismatch between the container's UID and the owner of the mounted host
+/// path is the classic way a `TrueNAS` custom app dies, and it has to be named
+/// here: `create_dir_all` succeeds on a directory that already exists whatever
+/// its permissions, and a mount always exists, so the failure would otherwise
+/// surface as an opaque SQLite error a few lines later.
+fn ensure_writable(dir: &std::path::Path) -> Result<(), String> {
+    let hint = "on TrueNAS the host path must be writable by the container user, default 568:568";
+
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("cannot create data dir {}: {e} ({hint})", dir.display()))?;
+
+    let probe = dir.join(".write-test");
+    std::fs::write(&probe, b"")
+        .map_err(|e| format!("data dir {} is not writable: {e} ({hint})", dir.display()))?;
+    let _ = std::fs::remove_file(&probe);
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -72,15 +102,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cfg = Config::from_env();
 
-    // Fail loudly here rather than on the first write: a data dir the
-    // container user cannot create is the classic TrueNAS UID 568 symptom.
-    std::fs::create_dir_all(&cfg.data_dir).map_err(|e| {
-        format!(
-            "cannot create data dir {}: {e} \
-             (on TrueNAS the host path must be writable by the container user, default 568:568)",
-            cfg.data_dir.display()
-        )
-    })?;
+    if let Some(tz) = &cfg.timezone {
+        calendar::set_timezone(tz)?;
+        tracing::info!(timezone = %tz, "dates read in");
+    }
+
+    ensure_writable(&cfg.data_dir)?;
 
     let db_path = cfg.data_dir.join("planner.sqlite3");
     let db = Arc::new(Db::open(&db_path)?);

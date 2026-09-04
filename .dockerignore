@@ -1,0 +1,8 @@
+/target
+/data
+.git
+.gitignore
+*.sqlite3*
+README.md
+Dockerfile
+docker-compose.yml

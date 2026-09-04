@@ -1,7 +1,11 @@
 //! Date-range maths. A view is a date range plus a layout (D18), and this is
 //! the range half — the only place that knows how many days a view holds.
 
+use std::sync::OnceLock;
+
+use anyhow::{Result, bail};
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
+use chrono_tz::Tz;
 
 /// Monday of the week containing `date`. Weeks start Monday (v1, not configurable).
 pub fn monday_of(date: NaiveDate) -> NaiveDate {
@@ -48,8 +52,35 @@ pub fn weekday_label(date: NaiveDate) -> &'static str {
     }
 }
 
+/// The zone "today" is answered in, fixed once at startup.
+///
+/// A container has no local time — it is UTC unless told otherwise — so a task
+/// added at half past eleven at night would land on tomorrow's column for a
+/// household east of Greenwich. The zone database is compiled into the binary,
+/// so this works without `tzdata` in the image.
+static ZONE: OnceLock<Tz> = OnceLock::new();
+
+/// Interpret `name` as an IANA zone (`Europe/Berlin`, `UTC`).
+fn zone(name: &str) -> Result<Tz> {
+    match name.trim().parse() {
+        Ok(tz) => Ok(tz),
+        Err(_) => bail!("unknown timezone {name:?} (expected an IANA name like Europe/Berlin)"),
+    }
+}
+
+/// Pin the zone every date in the app is read in. Called once, from startup.
+pub fn set_timezone(name: &str) -> Result<()> {
+    let _ = ZONE.set(zone(name)?);
+    Ok(())
+}
+
 pub fn today() -> NaiveDate {
-    chrono::Local::now().date_naive()
+    ZONE.get().map_or_else(
+        // Unset: fall back to the host's own idea of local time, which is what
+        // a `cargo run` on a laptop wants.
+        || chrono::Local::now().date_naive(),
+        |tz| chrono::Utc::now().with_timezone(tz).date_naive(),
+    )
 }
 
 #[cfg(test)]
@@ -127,6 +158,19 @@ mod tests {
     fn dates_round_trip_through_their_url_form() {
         for raw in ["2026-01-01", "2026-09-03", "2028-02-29"] {
             assert_eq!(fmt(parse(raw).unwrap()), raw);
+        }
+    }
+
+    #[test]
+    fn timezone_names_are_checked_before_they_are_stored() {
+        assert!(zone("Europe/Berlin").is_ok());
+        assert!(zone("UTC").is_ok());
+        // Whitespace from a compose file's quoting should not be fatal.
+        assert!(zone(" Europe/Berlin ").is_ok());
+        // A misconfigured zone has to be loud: silently falling back to UTC
+        // would put tasks on the wrong day only late in the evening.
+        for raw in ["", "Europe/Berlim", "CEST", "+02:00"] {
+            assert!(zone(raw).is_err(), "{raw} should not be accepted");
         }
     }
 

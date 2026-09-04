@@ -1,0 +1,30 @@
+# Paste this into TrueNAS SCALE: Apps -> Discover Apps -> Custom App ->
+# "Install via YAML". Build and load the image on the NAS first — see the
+# Deploying section of the README.
+
+services:
+  planner:
+    image: trusted-planner:0.1.0
+    container_name: trusted-planner
+    restart: unless-stopped
+
+    # TrueNAS runs custom apps as apps:apps. This has to match the owner of the
+    # host directory below, or the first write fails with permission denied —
+    # the most common way a custom app dies on its first start.
+    user: "568:568"
+
+    ports:
+      - "8080:8080"
+
+    environment:
+      # Which day "today" is. A container is UTC unless told; get this wrong
+      # and late-evening tasks land on tomorrow.
+      PLANNER_TZ: Europe/Berlin
+
+    volumes:
+      # The SQLite file. Point this at a dataset so ZFS snapshots back it up.
+      - /mnt/tank/apps/trusted-planner:/data
+
+      # Optional: edit the markup on the NAS without rebuilding the image.
+      # Templates are re-read on every render.
+      # - /mnt/tank/apps/trusted-planner/templates:/app/templates:ro
