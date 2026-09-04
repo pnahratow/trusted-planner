@@ -1,0 +1,36 @@
+# Everything AGENTS.md asks of a change, on every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      # The deny list lives in Cargo.toml; `-D warnings` catches everything
+      # else, so a dead function or an unused import fails here rather than
+      # accumulating.
+      - name: Lints
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Includes the translation coverage tests, which are the only thing that
+      # catches a string with no German behind it.
+      - name: Tests
+        run: cargo test

@@ -1,10 +1,11 @@
 # Paste this into TrueNAS SCALE: Apps -> Discover Apps -> Custom App ->
-# "Install via YAML". Build and load the image on the NAS first — see the
-# Deploying section of the README.
+# "Install via YAML". The image is built and published by GitHub Actions, so
+# the NAS pulls it rather than being handed one — see the Deploying section of
+# the README, which also covers building it yourself.
 
 services:
   planner:
-    image: trusted-planner:0.3.1
+    image: ghcr.io/pnahratow/trusted-planner:0.3.1
     container_name: trusted-planner
     restart: unless-stopped
 

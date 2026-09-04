@@ -56,6 +56,11 @@ cargo clippy --all-targets   # pedantic + nursery, warning-free
 cargo fmt --check            # stock rustfmt, no config
 ```
 
+All three run in CI on every push and pull request
+(`.github/workflows/ci.yml`), and a `v*` tag additionally builds and publishes
+the image (`.github/workflows/image.yml`), refusing to if the tag and the
+version in `Cargo.toml` disagree.
+
 Covers the things that are easy to get subtly wrong — task position renumbering
 across moves and deletes, translating a drop onto its neighbour, compare-and-swap
 refusal on a stale edit — plus the calendar date-range maths.
@@ -222,17 +227,31 @@ a `debian:trixie-slim` layer holding the binary, the templates and the static
 files. SQLite is compiled into the binary and so is the timezone database, so
 nothing is installed at runtime except `curl`, which the `HEALTHCHECK` uses.
 
+GitHub Actions builds and publishes it, so there is normally nothing to build
+by hand:
+
+| Tag | What it is |
+|---|---|
+| `ghcr.io/pnahratow/trusted-planner:0.3.1` | a release, exactly what `v0.3.1` points at |
+| `…:0.3` | the newest patch of that minor version |
+| `…:latest` | the newest release |
+| `…:edge` | the tip of `master`, built on every push |
+
 ```sh
-docker build -t trusted-planner:0.3.1 .
-docker compose up -d          # reads docker-compose.yml
+docker compose up -d          # reads docker-compose.yml, pulls from ghcr.io
 ```
 
 On TrueNAS SCALE: **Apps → Discover Apps → Custom App → Install via YAML**, and
-paste `docker-compose.yml`. The image has to exist on the NAS first — either
-push it to a registry it can reach, or copy it over:
+paste `docker-compose.yml`.
+
+A package on ghcr.io is private until you say otherwise, even from a public
+repository. Make it public once (**the repository → Packages → the package →
+Package settings → Change visibility**) or the NAS will need registry
+credentials to pull it. To build it yourself instead — offline, or to try a
+change before tagging it:
 
 ```sh
-docker save trusted-planner:0.3.1 | ssh nas 'docker load'
+docker build -t ghcr.io/pnahratow/trusted-planner:0.3.1 .
 ```
 
 Two things to get right, both in the compose file:

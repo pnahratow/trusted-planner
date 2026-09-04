@@ -25,6 +25,11 @@ RUN touch src/main.rs && cargo build --release
 
 FROM debian:trixie-slim
 
+LABEL org.opencontainers.image.title="Trusted Planner" \
+      org.opencontainers.image.description="A self-hosted week and four-week planner for a home network" \
+      org.opencontainers.image.source="https://github.com/pnahratow/trusted-planner" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+
 # curl is only here for HEALTHCHECK below; it is also the thing you reach for
 # first when the app is unreachable from a NAS shell.
 RUN apt-get update \
