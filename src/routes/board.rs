@@ -43,8 +43,15 @@ async fn index(State(state): State<AppState>, jar: CookieJar) -> AppResult {
         return Ok(Redirect::to("/settings").into_response());
     };
 
+    // Straight into the grid this board is read in, rather than always the
+    // week and a toggle away from where you were.
+    let view = state
+        .db
+        .with(|conn| queries::remembered_view(conn, me.id, board.id))
+        .with_context(|| format!("loading the remembered view of board {}", board.id))?;
     let monday = calendar::fmt(calendar::monday_of(calendar::today()));
-    Ok(Redirect::to(&format!("/b/{}/w/{monday}", board.id)).into_response())
+    let path = view.as_deref().unwrap_or(queries::VIEW_WEEK);
+    Ok(Redirect::to(&format!("/b/{}/{path}/{monday}", board.id)).into_response())
 }
 
 /// Applies the overdue rule before a grid is drawn.
@@ -75,11 +82,82 @@ fn sweep_overdue(state: &AppState, board_id: i64) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// One entry in the board picker: the board, and the URL that opens it.
+#[derive(serde::Serialize)]
+struct BoardLink {
+    id: i64,
+    name: String,
+    url: String,
+}
+
+/// Board-switch links, each opening its board in the grid that board is read
+/// in (per reader), on the period you are looking at now.
+///
+/// A board this person has not opened yet keeps the view you are in, so
+/// switching boards never rearranges the screen unasked; the first toggle
+/// there is what settles it. The four-week grid must start on a Monday for its
+/// rows to line up, so a link into it snaps, while a week link keeps the exact
+/// day you had scrolled to.
+fn board_links(
+    boards: &[crate::models::Board],
+    board_views: &std::collections::HashMap<i64, String>,
+    current_view: &str,
+    start: chrono::NaiveDate,
+) -> Vec<BoardLink> {
+    boards
+        .iter()
+        .map(|b| {
+            let view = board_views.get(&b.id).map_or(current_view, String::as_str);
+            let url = if view == queries::VIEW_FOUR_WEEKS {
+                format!(
+                    "/b/{}/{}/{}",
+                    b.id,
+                    queries::VIEW_FOUR_WEEKS,
+                    calendar::fmt(calendar::monday_of(start))
+                )
+            } else {
+                format!(
+                    "/b/{}/{}/{}",
+                    b.id,
+                    queries::VIEW_WEEK,
+                    calendar::fmt(start)
+                )
+            };
+            BoardLink {
+                id: b.id,
+                name: b.name.clone(),
+                url,
+            }
+        })
+        .collect()
+}
+
+/// Records which grid this person reads this board in, so the picker and `/`
+/// can land them back in it.
+///
+/// Written only when it changes: a page render is otherwise a read, and every
+/// page load dirtying the write-ahead log to store the value already there
+/// would be a write nobody asked for.
+fn remember_view(state: &AppState, me_id: i64, board_id: i64, view: &str, grid: &Grid) {
+    if grid.board_views.get(&board_id).map(String::as_str) == Some(view) {
+        return;
+    }
+    if let Err(e) = state
+        .db
+        .with(|conn| queries::remember_view(conn, me_id, board_id, view))
+    {
+        // Not worth failing a page render over; the view is a convenience.
+        tracing::warn!(error = %e, board_id, view, "could not remember the view");
+    }
+}
+
 /// Everything a grid page renders, whichever grid it is.
 struct Grid {
     board: crate::models::Board,
     users: Vec<crate::models::User>,
     boards: Vec<crate::models::Board>,
+    /// This reader's view for each board, for the picker's links.
+    board_views: std::collections::HashMap<i64, String>,
     days: Vec<views::ColumnView>,
     lists: Vec<views::ColumnView>,
     show_colour: bool,
@@ -97,6 +175,7 @@ struct Grid {
 /// an error.
 fn load_grid(
     state: &AppState,
+    me: &crate::models::User,
     board_id: i64,
     dates: &[chrono::NaiveDate],
     label: impl Fn(chrono::NaiveDate) -> (String, String),
@@ -109,6 +188,8 @@ fn load_grid(
         };
         let users = queries::users(conn).context("loading authors")?;
         let boards = queries::boards(conn).context("loading board list")?;
+        let board_views =
+            queries::remembered_views(conn, me.id).context("loading remembered views")?;
 
         // Spines only mean something where more than one person writes (D11).
         let show_colour = queries::board_member_count(conn, board_id)? > 1;
@@ -173,6 +254,7 @@ fn load_grid(
             board,
             users,
             boards,
+            board_views,
             days,
             lists,
             show_colour,
@@ -199,6 +281,7 @@ async fn week(
     sweep_overdue(&state, board_id).context("applying the overdue rule")?;
     let grid = load_grid(
         &state,
+        &me,
         board_id,
         &dates,
         |d| {
@@ -214,6 +297,8 @@ async fn week(
     let Some(grid) = grid else {
         return Ok(Redirect::to("/").into_response());
     };
+    remember_view(&state, me.id, board_id, queries::VIEW_WEEK, &grid);
+    let boards = board_links(&grid.boards, &grid.board_views, queries::VIEW_WEEK, start);
 
     render(
         &state,
@@ -231,7 +316,7 @@ async fn week(
             // The version this page reflects; polling resumes from here so a
             // change committed between render and first poll is not missed.
             change_seq => state.changes.current_seq(),
-            boards => grid.boards,
+            boards => boards,
             days => grid.days,
             lists => grid.lists,
             show_colour => grid.show_colour,
@@ -247,7 +332,6 @@ async fn week(
             // up, so switching snaps to the Monday of the week you are on.
             switch_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(start))),
             switch_label => "4 weeks",
-            board_path => format!("/w/{}", calendar::fmt(start)),
             range_label => format!(
                 "{} – {}",
                 dates[0].format("%-d %b"),
@@ -279,6 +363,7 @@ async fn four_weeks(
     sweep_overdue(&state, board_id).context("applying the overdue rule")?;
     let grid = load_grid(
         &state,
+        &me,
         board_id,
         &dates,
         // Day number plus month, always: four weeks can span three months, and
@@ -291,6 +376,13 @@ async fn four_weeks(
     let Some(grid) = grid else {
         return Ok(Redirect::to("/").into_response());
     };
+    remember_view(&state, me.id, board_id, queries::VIEW_FOUR_WEEKS, &grid);
+    let boards = board_links(
+        &grid.boards,
+        &grid.board_views,
+        queries::VIEW_FOUR_WEEKS,
+        monday,
+    );
 
     // A week at a time: the grid has to start on a Monday for its rows to line
     // up, and stepping by a single week is the finest move that preserves that.
@@ -309,7 +401,7 @@ async fn four_weeks(
             board => grid.board,
             board_id => board_id,
             change_seq => state.changes.current_seq(),
-            boards => grid.boards,
+            boards => boards,
             cells => grid.days,
             lists => grid.lists,
             show_colour => grid.show_colour,
@@ -320,7 +412,6 @@ async fn four_weeks(
             today_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(calendar::today()))),
             switch_url => format!("/b/{board_id}/w/{}", calendar::fmt(monday)),
             switch_label => "Week",
-            board_path => format!("/4w/{}", calendar::fmt(monday)),
             range_label => format!(
                 "{} – {}",
                 monday.format("%-d %b"),
@@ -416,4 +507,70 @@ pub fn render_column(
             show_colour => show_colour,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Board;
+    use std::collections::HashMap;
+
+    fn boards() -> Vec<Board> {
+        vec![
+            Board {
+                id: 1,
+                name: "Home".into(),
+            },
+            Board {
+                id: 2,
+                name: "Planning".into(),
+            },
+        ]
+    }
+
+    fn d(s: &str) -> chrono::NaiveDate {
+        calendar::parse(s).unwrap()
+    }
+
+    /// 2026-09-03 is a Thursday, so a link into the four-week grid has to snap
+    /// back to Monday the 31st while a week link keeps the Thursday.
+    #[test]
+    fn each_board_opens_in_the_view_it_is_read_in() {
+        let mut views = HashMap::new();
+        views.insert(2, queries::VIEW_FOUR_WEEKS.to_string());
+
+        let links = board_links(&boards(), &views, queries::VIEW_WEEK, d("2026-09-03"));
+        assert_eq!(links[1].url, "/b/2/4w/2026-08-31");
+        assert_eq!(
+            links[0].url, "/b/1/w/2026-09-03",
+            "a board with no remembered view keeps the view you are in"
+        );
+    }
+
+    #[test]
+    fn a_board_never_opened_follows_the_page_you_are_on() {
+        let links = board_links(
+            &boards(),
+            &HashMap::new(),
+            queries::VIEW_FOUR_WEEKS,
+            d("2026-08-31"),
+        );
+        for link in &links {
+            assert!(
+                link.url.contains("/4w/"),
+                "{} should stay in four weeks",
+                link.url
+            );
+        }
+    }
+
+    /// A stored value that is neither of the two spellings must not produce a
+    /// URL that routes nowhere.
+    #[test]
+    fn an_unrecognised_stored_view_falls_back_to_the_week() {
+        let mut views = HashMap::new();
+        views.insert(1, "month".to_string());
+        let links = board_links(&boards(), &views, queries::VIEW_FOUR_WEEKS, d("2026-08-31"));
+        assert_eq!(links[0].url, "/b/1/w/2026-08-31");
+    }
 }

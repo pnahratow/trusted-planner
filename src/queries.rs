@@ -1,6 +1,8 @@
 //! All SQL lives here. Functions take `&Connection` so they compose freely
 //! inside or outside a transaction (`Transaction` derefs to `Connection`).
 
+use std::collections::HashMap;
+
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Result, params};
 
@@ -216,6 +218,41 @@ pub fn board_member_count(conn: &Connection, board_id: i64) -> Result<i64> {
         params![board_id],
         |r| r.get(0),
     )
+}
+
+// ----------------------------------------------------------- board views
+
+/// The two grids, spelled the way they appear in a URL so the stored value is
+/// also the path segment.
+pub const VIEW_WEEK: &str = "w";
+pub const VIEW_FOUR_WEEKS: &str = "4w";
+
+/// Which grid this person last read each board in.
+///
+/// One query for every board, because the board picker needs them all: each
+/// entry in it opens its board in the view that board is read in.
+pub fn remembered_views(conn: &Connection, user_id: i64) -> Result<HashMap<i64, String>> {
+    let mut stmt = conn.prepare("SELECT board_id, view FROM board_views WHERE user_id = ?1")?;
+    let rows = stmt.query_map([user_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+pub fn remembered_view(conn: &Connection, user_id: i64, board_id: i64) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT view FROM board_views WHERE user_id = ?1 AND board_id = ?2",
+        (user_id, board_id),
+        |r| r.get(0),
+    )
+    .optional()
+}
+
+pub fn remember_view(conn: &Connection, user_id: i64, board_id: i64, view: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO board_views (user_id, board_id, view) VALUES (?1, ?2, ?3)
+         ON CONFLICT (user_id, board_id) DO UPDATE SET view = excluded.view",
+        (user_id, board_id, view),
+    )?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------- lists
@@ -645,6 +682,8 @@ mod tests {
             .unwrap();
         conn.execute_batch(include_str!("../migrations/002_global_settings.sql"))
             .unwrap();
+        conn.execute_batch(include_str!("../migrations/003_board_views.sql"))
+            .unwrap();
         let author = create_user(&conn, "Tester", "#3563e9").unwrap();
         let board = create_board(&conn, "Board").unwrap();
         let a = create_custom_list(&conn, board, "A").unwrap();
@@ -791,6 +830,44 @@ mod tests {
     /// stay invisible until someone triggered it in production. This is the
     /// cheap half of what a compile-time-checked query layer would buy, and it
     /// costs no build-time database.
+    /// The picker opens each board in the view it is read in, so the write has
+    /// to overwrite rather than accumulate, and one person's choice must not
+    /// reach another's screen.
+    #[test]
+    fn a_remembered_view_is_per_person_and_per_board() {
+        let (conn, ann, _, _) = fixture();
+        let bob = create_user(&conn, "Bob", "#e0533d").unwrap();
+        let planning = create_board(&conn, "Planning").unwrap();
+        let shopping = create_board(&conn, "Shopping").unwrap();
+
+        remember_view(&conn, ann, planning, VIEW_FOUR_WEEKS).unwrap();
+        remember_view(&conn, ann, shopping, VIEW_WEEK).unwrap();
+        remember_view(&conn, bob, planning, VIEW_WEEK).unwrap();
+
+        let hers = remembered_views(&conn, ann).unwrap();
+        assert_eq!(
+            hers.get(&planning).map(String::as_str),
+            Some(VIEW_FOUR_WEEKS)
+        );
+        assert_eq!(hers.get(&shopping).map(String::as_str), Some(VIEW_WEEK));
+        assert_eq!(
+            remembered_views(&conn, bob)
+                .unwrap()
+                .get(&planning)
+                .map(String::as_str),
+            Some(VIEW_WEEK),
+            "Bob reads the same board his own way"
+        );
+
+        // Switching view replaces the row rather than adding one.
+        remember_view(&conn, ann, planning, VIEW_WEEK).unwrap();
+        assert_eq!(remembered_views(&conn, ann).unwrap().len(), 2);
+        assert_eq!(
+            remembered_view(&conn, ann, planning).unwrap().as_deref(),
+            Some(VIEW_WEEK)
+        );
+    }
+
     #[test]
     fn every_query_prepares_and_runs() {
         let (conn, author, list_a, _list_b) = fixture();
@@ -823,6 +900,15 @@ mod tests {
         );
         rename_board(&conn, b, "Renamed Board").unwrap();
         assert_eq!(board(&conn, b).unwrap().unwrap().name, "Renamed Board");
+
+        // remembered views
+        assert!(remembered_view(&conn, author, b).unwrap().is_none());
+        remember_view(&conn, author, b, VIEW_FOUR_WEEKS).unwrap();
+        assert_eq!(
+            remembered_view(&conn, author, b).unwrap().as_deref(),
+            Some(VIEW_FOUR_WEEKS)
+        );
+        assert_eq!(remembered_views(&conn, author).unwrap().len(), 1);
 
         // lists
         let cl = create_custom_list(&conn, b, "Shopping").unwrap();
@@ -863,6 +949,11 @@ mod tests {
         // flags
         set_flag(&conn, MOVE_COMPLETED, false).unwrap();
         assert!(!get_flag(&conn, MOVE_COMPLETED, true).unwrap());
+        set_setting(&conn, OVERDUE_ACTION, OVERDUE_TODAY).unwrap();
+        assert_eq!(
+            get_setting(&conn, OVERDUE_ACTION, OVERDUE_LIST).unwrap(),
+            OVERDUE_TODAY
+        );
 
         // teardown paths, which are the least-travelled SQL in the app
         delete_task(&conn, t2).unwrap();

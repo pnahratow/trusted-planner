@@ -126,7 +126,7 @@ static/
   app.css        one stylesheet; theming via CSS custom properties
   app.js         focus guard, undo timer, drag & drop, the poll loop
   vendor/        htmx and SortableJS, committed (the NAS may be offline)
-migrations/      001_init.sql, 002_global_settings.sql — embedded at build time
+migrations/      001..003 — embedded at build time, listed in db.rs
 ```
 
 ## A reading order
@@ -198,6 +198,7 @@ POST /task/42/toggle          <- hx-post on the checkbox form
 | Change how many weeks the wide view shows | `calendar::VIEW_WEEKS`, and the grid width in `app.css` |
 | Change how many rows a month cell fits | `views::MONTH_CELL_ROWS` |
 | Change the polling interval | `POLL_MS` in `static/app.js` |
+| Change where a board opens | `board_links` and `index` in `routes/board.rs` |
 | Change colours or spacing | the custom properties at the top of `static/app.css` |
 
 ## Traps

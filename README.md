@@ -52,10 +52,12 @@ Covers the things that are easy to get subtly wrong — task position renumberin
 across moves and deletes, translating a drop onto its neighbour, compare-and-swap
 refusal on a stale edit — plus the calendar date-range maths.
 
-`every_query_prepares_and_runs` exercises all 33 query functions once against a
-real schema. SQLite only parses SQL when a statement is prepared, so without it a
-typo in a rarely-hit path (renaming a list, removing a board) would stay hidden
-until someone triggered it in production.
+`every_query_prepares_and_runs` exercises, in one pass against a real schema,
+the 35 query functions that no other test reaches; the remaining eight — the
+overdue sweep, compare-and-swap, moving and undo — have tests of their own.
+SQLite only parses SQL when a statement is prepared, so without this a typo in
+a rarely-hit path (renaming a list, removing a board) would stay hidden until
+someone triggered it in production.
 
 The rendered page is checked in a real browser (headless Chromium over the
 DevTools protocol) rather than only with `curl`, because a template that renders
@@ -92,6 +94,14 @@ Four weeks rather than a calendar month on purpose. A month grid is 35 cells
 some months and 42 others, so rows reflow and change height as you page through
 it; 4x7 never does. A cell that runs out of room shows "+N more", which opens
 that day in full — the same column partial, so it behaves the same inside.
+
+Each board remembers which of the two you read it in, per person. A board full
+of appointments wants four weeks and a shopping board wants none of it, so the
+choice belongs to the board rather than to the app — and it is per person
+because, unlike the ordering, the view changes nothing about the data: two
+people on a laptop and a big monitor are entitled to disagree. The URL is still
+the truth while you are on a page, so a link you paste opens the view you
+copied; the memory only decides where `/` and the board picker send you.
 
 ## Deleting
 
