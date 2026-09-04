@@ -197,7 +197,7 @@ files. SQLite is compiled into the binary and so is the timezone database, so
 nothing is installed at runtime except `curl`, which the `HEALTHCHECK` uses.
 
 ```sh
-docker build -t trusted-planner:0.1.0 .
+docker build -t trusted-planner:0.2.0 .
 docker compose up -d          # reads docker-compose.yml
 ```
 
@@ -206,7 +206,7 @@ paste `docker-compose.yml`. The image has to exist on the NAS first — either
 push it to a registry it can reach, or copy it over:
 
 ```sh
-docker save trusted-planner:0.1.0 | ssh nas 'docker load'
+docker save trusted-planner:0.2.0 | ssh nas 'docker load'
 ```
 
 Two things to get right, both in the compose file:
