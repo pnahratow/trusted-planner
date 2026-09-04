@@ -10,7 +10,7 @@
   <script src="/static/vendor/sortable.min.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
   <header class="topbar">
     <a class="brand" href="/">Trusted&nbsp;Planner</a>
     {% block topbar %}{% endblock %}

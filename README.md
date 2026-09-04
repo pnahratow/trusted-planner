@@ -100,8 +100,27 @@ in both.
 
 Four weeks rather than a calendar month on purpose. A month grid is 35 cells
 some months and 42 others, so rows reflow and change height as you page through
-it; 4x7 never does. A cell that runs out of room shows "+N more", which opens
-that day in full — the same column partial, so it behaves the same inside.
+it; 4x7 never does.
+
+**A grid page is exactly as tall as the window.** The point of four weeks at
+once is seeing them at once, so the page never scrolls: the topbar takes what
+it needs, the custom lists take up to a quarter of the screen, and the calendar
+divides the rest into four equal rows. On a 1440p screen that is a cell with
+room for seven or eight tasks; on a 768px tablet, for two or three, with the
+gaps, headings and rows tightened to claw back the difference. A cell that
+still runs out of room scrolls its own list, showing half a row at the cut so
+you can see there is more. Clicking a cell's date opens that day in full — the
+ordinary column partial, so adding, editing and dragging behave identically
+inside it.
+
+The cell used to be cut to four tasks by the server, which was too few on a
+large screen and too many on a small one. How much fits is a question about the
+height of a cell, and only the browser knows that, so the server sends
+everything and the layout decides.
+
+Below 760px wide, or 460px tall, four weeks in one screenful stops being dense
+and starts being unreadable, so the page goes back to being a document you
+scroll. A phone wants the week view.
 
 Each board remembers which of the two you read it in, per person. A board full
 of appointments wants four weeks and a shopping board wants none of it, so the

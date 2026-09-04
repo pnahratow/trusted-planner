@@ -199,7 +199,7 @@ POST /task/42/toggle          <- hx-post on the checkbox form
 | Add a route | the relevant `src/routes/*.rs`; its `router()` is merged in `routes/mod.rs` |
 | Add an app-wide setting | a key constant in `queries.rs`, a control in `templates/settings.html`, a branch in `settings.rs::display_action` |
 | Change how many weeks the wide view shows | `calendar::VIEW_WEEKS`, and the grid width in `app.css` |
-| Change how many rows a month cell fits | `views::MONTH_CELL_ROWS` |
+| Change how much a calendar cell fits | `static/app.css` — the `body.fills-screen` rules and the `max-height` media query; the server sends every task |
 | Change the polling interval | `POLL_MS` in `static/app.js` |
 | Change where a board opens | `board_links` and `index` in `routes/board.rs` |
 | Change colours or spacing | the custom properties at the top of `static/app.css` |

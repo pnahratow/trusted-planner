@@ -5,26 +5,29 @@
          hx-get="/b/{{ board_id }}/col/{{ col.key }}?density={{ col.density }}"
          hx-trigger="refresh-column"
          hx-swap="outerHTML">
+  {% if col.is_day and col.density == "compact" %}
+  {# In a calendar cell the heading opens the day in full — the room a cell has
+     is a question about the screen, so a cell that runs out of it scrolls, and
+     this is how you get the whole day at a comfortable size. #}
+  <button type="button" class="column-head is-openable"
+          hx-get="/b/{{ board_id }}/day/{{ col.key }}"
+          hx-target="#day-panel" hx-swap="innerHTML"
+          title="{{ 'Open this day' | t }}">
+    <span class="col-heading">{{ col.heading }}</span>
+    {% if col.subheading %}<span class="col-sub">{{ col.subheading }}</span>{% endif %}
+  </button>
+  {% else %}
   <header class="column-head">
     <span class="col-heading">{{ col.heading }}</span>
     {% if col.subheading %}<span class="col-sub">{{ col.subheading }}</span>{% endif %}
   </header>
+  {% endif %}
 
   <ul class="tasks">
     {% for task in col.tasks %}
       {% include "task_row.html" %}
     {% endfor %}
   </ul>
-
-  {% if col.hidden %}
-  {# The cell ran out of room. Open the day in full rather than shrinking rows
-     further — everything in the panel is the same column at full size. #}
-  <button type="button" class="more-link"
-          hx-get="/b/{{ board_id }}/day/{{ col.key }}"
-          hx-target="#day-panel" hx-swap="innerHTML">
-    +{{ col.hidden }} {{ "more" | t }}
-  </button>
-  {% endif %}
 
   {# queue all: typing two tasks in quick succession must add both, rather than
      the second request cancelling the first in flight. #}

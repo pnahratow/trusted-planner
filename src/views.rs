@@ -28,13 +28,6 @@ use crate::queries;
 pub const COMPACT: &str = "compact";
 pub const FULL: &str = "full";
 
-/// Rows a month cell shows before it starts counting the remainder.
-const MONTH_CELL_ROWS: usize = 4;
-
-fn limit_for(density: &str) -> Option<usize> {
-    (density == COMPACT).then_some(MONTH_CELL_ROWS)
-}
-
 /// Density is a property of the *column*, not of the page it appears on.
 ///
 /// Custom lists sit in their own row with room to breathe in both views (D17),
@@ -122,8 +115,6 @@ pub struct ColumnView {
     /// Carried into the markup so the column's own refresh URL round-trips it.
     pub density: &'static str,
     pub tasks: Vec<TaskView>,
-    /// Tasks the cell had no room for. Always 0 where nothing is limited.
-    pub hidden: usize,
 }
 
 /// "3 Sep" — but German writes "3. Sep", so the punctuation is part of the
@@ -154,10 +145,11 @@ pub fn task_view(task: &Task, authors: &[User]) -> TaskView {
 
 /// Builds one column. `tasks` is pre-filtered to this list.
 ///
-/// A compact column shows a handful of rows and reports the rest as `hidden`,
-/// so the template can offer to open the day in full. Deciding that here keeps
-/// the templates free of slicing and arithmetic, and lets both grids share one
-/// partial unchanged.
+/// Every task the column holds, whichever grid it is in. A cell used to be
+/// sliced to a fixed four rows here, which was both too few on a large screen
+/// and too many on a small one — how much fits is a question about the height
+/// of the cell, which only the layout knows. The cell scrolls its own list
+/// instead, and the day panel opens one in full.
 pub fn column_view(
     key: ColumnKey,
     list_id: Option<i64>,
@@ -167,10 +159,6 @@ pub fn column_view(
     authors: &[User],
     density: &'static str,
 ) -> ColumnView {
-    let shown = limit_for(density).map_or(tasks.len(), |n| n.min(tasks.len()));
-    // `get` and `saturating_sub` rather than a slice and a subtraction: both
-    // are within range by construction, and neither needs to be trusted to be.
-    let visible = tasks.get(..shown).unwrap_or(tasks);
     ColumnView {
         key: key.as_string(),
         heading,
@@ -179,8 +167,7 @@ pub fn column_view(
         is_today: matches!(key, ColumnKey::Day(d) if d == calendar::today()),
         list_id,
         density,
-        tasks: visible.iter().map(|t| task_view(t, authors)).collect(),
-        hidden: tasks.len().saturating_sub(shown),
+        tasks: tasks.iter().map(|t| task_view(t, authors)).collect(),
     }
 }
 
@@ -271,35 +258,19 @@ mod tests {
         )
     }
 
+    /// Both densities carry every task now. A cell that runs out of room
+    /// scrolls; nothing is dropped on the way to the template, because the
+    /// server has no idea how tall the cell will be.
     #[test]
-    fn a_full_column_shows_everything() {
-        let col = build(9, FULL);
-        assert_eq!(col.tasks.len(), 9);
-        assert_eq!(col.hidden, 0);
-    }
-
-    #[test]
-    fn a_compact_cell_shows_the_first_few_and_counts_the_rest() {
-        let col = build(9, COMPACT);
-        assert_eq!(col.tasks.len(), MONTH_CELL_ROWS);
-        assert_eq!(col.hidden, 9 - MONTH_CELL_ROWS);
-        assert_eq!(col.tasks[0].title, "task 0", "the visible ones come first");
-    }
-
-    #[test]
-    fn a_cell_with_room_to_spare_hides_nothing() {
-        let col = build(2, COMPACT);
-        assert_eq!(col.tasks.len(), 2);
-        assert_eq!(col.hidden, 0, "must not underflow");
-    }
-
-    #[test]
-    fn an_empty_column_is_fine_at_either_density() {
+    fn a_column_carries_every_task_at_either_density() {
         for density in [FULL, COMPACT] {
-            let col = build(0, density);
-            assert_eq!(col.tasks.len(), 0);
-            assert_eq!(col.hidden, 0);
+            assert_eq!(build(9, density).tasks.len(), 9);
+            assert_eq!(build(0, density).tasks.len(), 0);
         }
+        assert_eq!(
+            build(9, COMPACT).tasks.first().map(|t| t.title.as_str()),
+            Some("task 0")
+        );
     }
 
     /// A custom list is never squeezed into a calendar cell, whichever grid it

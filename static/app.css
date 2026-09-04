@@ -70,6 +70,91 @@ body {
 
 main { padding: 16px; }
 
+/* ------------------------------------------------ filling the screen
+
+   A grid page is a dashboard, not a document: the point of four weeks at once
+   is seeing them at once, so the page is exactly as tall as the window and the
+   grid takes whatever is left after the topbar. Cells then share the height
+   between them instead of every cell being 116px and the page running off the
+   bottom of a laptop — or leaving a third of a 1440p screen empty.
+
+   A column that runs out of room scrolls its own task list. Only the list
+   scrolls: the heading and the add row stay put, so a cell always shows what
+   day it is and always takes a new task. */
+body.fills-screen {
+  height: 100vh;    /* an older browser stops here, which is close enough */
+  height: 100dvh;   /* and a newer one discounts a phone's address bar */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+body.fills-screen > main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+body.fills-screen .week-grid,
+body.fills-screen .weeks-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* The custom lists take the height they need and no more, up to a third of
+   the screen; past that they scroll inside their own columns. Not shrinkable,
+   because the calendar above has empty cells to give and they do not. */
+body.fills-screen .lists-row {
+  flex: 0 0 auto;
+  min-height: 0;
+  /* A quarter of the screen, so the calendar keeps the bulk of it; a taller
+     screen has room to be more generous. */
+  max-height: 25%;
+  margin-top: 0;
+}
+@media (min-height: 900px) {
+  body.fills-screen .lists-row { max-height: 32%; }
+}
+body.fills-screen .weeks-grid { grid-auto-rows: minmax(0, 1fr); }
+
+/* Below this, four weeks in one screenful is unreadable rather than dense, so
+   the page goes back to being a document you scroll. */
+@media (max-width: 760px), (max-height: 460px) {
+  body.fills-screen {
+    height: auto;
+    overflow: visible;
+    display: block;
+  }
+  body.fills-screen > main { display: block; }
+  body.fills-screen .lists-row { max-height: none; margin-top: var(--gap); }
+  /* Rows share the height when there is a height to share. Here there is not,
+     and `1fr` would resolve against the tallest cell — four rows of it. */
+  body.fills-screen .weeks-grid { grid-auto-rows: auto; }
+  body.fills-screen .column { min-height: 116px; }
+}
+
+/* A screen with less height than a laptop gets the same information in less
+   room: smaller gaps, a tighter cell heading and a thinner add row. Four rows
+   of a calendar amplify every pixel of chrome, so this is worth about one more
+   task per cell on a 768px-tall tablet. */
+@media (max-height: 850px) {
+  body.fills-screen { --gap: 6px; }
+  body.fills-screen .column.is-compact .column-head { padding: 3px 7px; }
+  body.fills-screen .column.is-compact .col-heading { font-size: 0.9em; }
+  body.fills-screen .column.is-compact .col-sub { font-size: 0.78em; }
+  body.fills-screen .column.is-compact .tasks { padding: 1px; }
+  body.fills-screen .column.is-compact .add-input { padding: 2px 8px; }
+  /* A task row is the unit that has to fit: trimming it by eight pixels is
+     the difference between a cell showing two tasks and a cell showing two
+     tasks and a scrollbar. */
+  body.fills-screen .column.is-compact .task { padding: 0 2px 0 0; }
+  body.fills-screen .column.is-compact .task-title { padding: 0 2px; line-height: 1.4; }
+  body.fills-screen .column.is-compact .check {
+    width: 14px; height: 14px; margin-top: 2px; font-size: 10px;
+  }
+  body.fills-screen .weeks-head { margin-bottom: 2px; }
+  body.fills-screen > main { padding: 10px; }
+}
+
 .placeholder {
   max-width: 40rem;
   padding: 20px;
@@ -138,6 +223,9 @@ textarea { resize: vertical; width: 100%; }
   min-height: 120px;
   overflow: hidden;
 }
+/* Free to shrink to its share of the screen; `min-height` above is for the
+   scrolling layout, where there is no share to take. */
+body.fills-screen .column { min-height: 0; }
 .column.is-today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .column.is-list .col-heading { color: var(--accent); }
 
@@ -145,11 +233,38 @@ textarea { resize: vertical; width: 100%; }
   display: flex; align-items: baseline; gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+  flex: none;
 }
+/* In a calendar cell the heading is the way into the day, so it is a button —
+   styled as the heading it replaced, not as a control. */
+button.column-head {
+  width: 100%; font: inherit; text-align: left; cursor: pointer;
+  background: none; color: inherit;
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+}
+button.column-head:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .col-heading { font-weight: 600; }
 .col-sub { color: var(--muted); font-size: 0.85em; }
 
-.tasks { list-style: none; margin: 0; padding: 4px; flex: 1; }
+.tasks {
+  list-style: none; margin: 0; padding: 4px;
+  flex: 1 1 auto; min-height: 0;
+  /* The one thing in a column that scrolls. */
+  overflow-y: auto;
+  /* A shadow that appears only when there is something past the edge, so a
+     cell that is holding more than it can show says so. Two layers scroll with
+     the content and cover the shadows at the ends; the two beneath stay put.
+     No JavaScript, and nothing to keep in step. */
+  background:
+    linear-gradient(var(--surface) 30%, transparent) top / 100% 14px no-repeat local,
+    linear-gradient(transparent, var(--surface) 70%) bottom / 100% 14px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.18), transparent)
+      top / 100% 6px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.18), transparent)
+      bottom / 100% 6px no-repeat scroll;
+}
+/* Thin, and only while it is needed. */
+.tasks { scrollbar-width: thin; }
 
 
 .task {
@@ -188,7 +303,7 @@ textarea { resize: vertical; width: 100%; }
 
 /* Deliberately quiet: it is the empty slot at the end of the list, not a
    call to action repeated seven times across the screen. */
-.add-task { border-top: 1px solid transparent; }
+.add-task { border-top: 1px solid transparent; flex: none; }
 .add-input {
   width: 100%; border: 0; border-radius: 6px;
   background: transparent; padding: 6px 8px;
@@ -335,6 +450,7 @@ textarea { resize: vertical; width: 100%; }
 /* A compact column is a calendar cell. The grid is always 4x7, so every cell
    is the same size and every row lines up — no month-dependent reflow. */
 .column.is-compact { min-height: 116px; }
+body.fills-screen .column.is-compact { min-height: 0; }
 .column.is-compact .column-head { padding: 5px 8px; }
 .column.is-compact .col-heading { font-weight: 500; font-size: 0.95em; }
 .column.is-compact .tasks { padding: 2px; }
@@ -342,13 +458,6 @@ textarea { resize: vertical; width: 100%; }
 .column.is-compact .task-title { padding: 1px 2px; }
 .column.is-compact .add-input { padding: 4px 8px; font-size: 0.88em; }
 .column.is-today .col-heading { color: var(--accent); font-weight: 700; }
-
-.more-link {
-  background: none; border: 0; cursor: pointer;
-  font: inherit; font-size: 0.82em; text-align: left;
-  color: var(--accent); padding: 2px 8px 6px;
-}
-.more-link:hover { text-decoration: underline; }
 
 @media (max-width: 780px) {
   .weeks-head { display: none; }
