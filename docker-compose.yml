@@ -17,8 +17,8 @@ services:
       - "8080:8080"
 
     environment:
-      # Which day "today" is. A container is UTC unless told; get this wrong
-      # and late-evening tasks land on tomorrow.
+      # Which day "today" is. Europe/Berlin is also the built-in default; this
+      # line is here because it is the one you change when you move.
       PLANNER_TZ: Europe/Berlin
 
     volumes:

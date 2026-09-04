@@ -24,17 +24,18 @@ for the current week.
 | `PLANNER_PORT` | `8080` | Listen port |
 | `PLANNER_TEMPLATE_DIR` | `templates` | Templates, read from disk at render time |
 | `PLANNER_STATIC_DIR` | `static` | CSS, JS, vendored libraries |
-| `PLANNER_TZ` (or `TZ`) | the host's local time | IANA zone the calendar is read in, e.g. `Europe/Berlin` |
+| `PLANNER_TZ` (or `TZ`) | `Europe/Berlin` | IANA zone the calendar is read in |
 
 Templates are re-read on every render, so editing anything in `templates/` shows
 up on the next page load with no rebuild and no restart.
 
 The timezone matters more than it looks. A container has no local time — it is
-UTC unless told otherwise — so without `PLANNER_TZ` a task added at half past
-eleven at night in Berlin would be filed under tomorrow. An unknown zone name
-stops the server at startup rather than quietly falling back to UTC, where the
-mistake would only show up late in the evening. The zone database is compiled
-into the binary, so the image needs no `tzdata`.
+UTC unless told otherwise — so a task added at half past eleven at night would
+be filed under tomorrow. The default is therefore `Europe/Berlin`, an actual
+place rather than a defensible abstention; elsewhere, set `PLANNER_TZ`. An
+unknown zone name stops the server at startup instead of quietly meaning UTC,
+where the mistake would only show up late in the evening. The zone database is
+compiled into the binary, so the image needs no `tzdata`.
 
 ## Tests
 

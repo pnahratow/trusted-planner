@@ -60,6 +60,13 @@ pub fn weekday_label(date: NaiveDate) -> &'static str {
 /// so this works without `tzdata` in the image.
 static ZONE: OnceLock<Tz> = OnceLock::new();
 
+/// Where this app is. Set `PLANNER_TZ` to move it.
+///
+/// A default that is a real place beats one that is merely defensible: the
+/// household this is written for is in Berlin, so an unconfigured container is
+/// right for them rather than eight hours of every day wrong.
+const DEFAULT_ZONE: Tz = chrono_tz::Europe::Berlin;
+
 /// Interpret `name` as an IANA zone (`Europe/Berlin`, `UTC`).
 fn zone(name: &str) -> Result<Tz> {
     match name.trim().parse() {
@@ -74,13 +81,13 @@ pub fn set_timezone(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// The zone in force — configured, or [`DEFAULT_ZONE`].
+pub fn timezone() -> Tz {
+    ZONE.get().copied().unwrap_or(DEFAULT_ZONE)
+}
+
 pub fn today() -> NaiveDate {
-    ZONE.get().map_or_else(
-        // Unset: fall back to the host's own idea of local time, which is what
-        // a `cargo run` on a laptop wants.
-        || chrono::Local::now().date_naive(),
-        |tz| chrono::Utc::now().with_timezone(tz).date_naive(),
-    )
+    chrono::Utc::now().with_timezone(&timezone()).date_naive()
 }
 
 #[cfg(test)]
@@ -159,6 +166,18 @@ mod tests {
         for raw in ["2026-01-01", "2026-09-03", "2028-02-29"] {
             assert_eq!(fmt(parse(raw).unwrap()), raw);
         }
+    }
+
+    /// The unconfigured case is the one that ships, so it is worth asserting
+    /// rather than assuming: no `PLANNER_TZ` must still mean Berlin, not UTC
+    /// and not whatever the host happens to think.
+    #[test]
+    fn an_unconfigured_app_keeps_berlin_time() {
+        assert_eq!(timezone(), chrono_tz::Europe::Berlin);
+        assert_eq!(
+            today(),
+            chrono::Utc::now().with_timezone(&timezone()).date_naive()
+        );
     }
 
     #[test]

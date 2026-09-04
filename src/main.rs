@@ -41,7 +41,7 @@ struct Config {
     template_dir: PathBuf,
     static_dir: PathBuf,
     port: u16,
-    /// IANA zone name; unset means "whatever the host thinks local time is".
+    /// IANA zone name; unset means the calendar's own default (Europe/Berlin).
     timezone: Option<String>,
 }
 
@@ -104,8 +104,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(tz) = &cfg.timezone {
         calendar::set_timezone(tz)?;
-        tracing::info!(timezone = %tz, "dates read in");
     }
+    tracing::info!(timezone = %calendar::timezone(), "dates read in");
 
     ensure_writable(&cfg.data_dir)?;
 
