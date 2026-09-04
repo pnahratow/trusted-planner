@@ -2,6 +2,11 @@
 name = "trusted-planner"
 version = "0.3.1"
 edition = "2024"
+description = "A self-hosted week and four-week planner for a home network"
+license = "AGPL-3.0-or-later"
+readme = "README.md"
+# Not for crates.io: this is an application, and its data lives beside it.
+publish = false
 
 [dependencies]
 anyhow = "1.0.104"

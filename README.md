@@ -264,6 +264,25 @@ snapshot taken after a stop is a complete database rather than one missing its
 most recent writes. Ctrl-C locally, or `kill` from outside, is the same
 shutdown.
 
+## Licence
+
+GNU Affero General Public License v3.0 or later — see [LICENSE](LICENSE).
+Copyleft on purpose: a household planner someone improves should stay something
+the next household can have. Affero rather than plain GPL because this is a
+thing you run for other people to use over a network, and that is the case the
+ordinary GPL does not reach — run a modified copy for others and the source
+goes with it.
+
+htmx and SortableJS are committed under `static/vendor/` so the app can be
+served by a machine with no internet connection. They are unmodified builds
+under their own licences, reproduced in
+[static/vendor/NOTICE](static/vendor/NOTICE) — htmx under Zero-Clause BSD,
+SortableJS under MIT.
+
+The binary carries more than its own code: SQLite is compiled into it and 136
+crates are linked in. [THIRD-PARTY.md](THIRD-PARTY.md) lists them with their
+licences, and says how to regenerate the list after a dependency changes.
+
 ## Status
 
 All nine phases of the plan are done: skeleton, settings, week grid, task CRUD,

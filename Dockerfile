@@ -41,6 +41,9 @@ COPY --from=build /src/target/release/trusted-planner /usr/local/bin/trusted-pla
 COPY templates ./templates
 COPY static ./static
 COPY locales ./locales
+# The image is a distribution of this software and everything linked into it,
+# so the licence and the attribution travel with it.
+COPY LICENSE THIRD-PARTY.md ./
 
 # Templates and translations are read from disk on every render, so
 # bind-mounting over either directory lets you edit the markup or reword the

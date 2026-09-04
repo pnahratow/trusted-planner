@@ -74,6 +74,12 @@ The interface speaks English or German. Everything else — code, comments,
 commit messages, documentation, database contents — stays English, including
 the keys in `locales/de.json`, which are the English strings themselves.
 
+## When dependencies change
+
+`THIRD-PARTY.md` lists every crate the binary links in, and it is generated
+rather than maintained by hand. Adding or removing a dependency means
+regenerating it from `cargo metadata --format-version 1 --locked`.
+
 ## Style
 
 Comments explain **why**, not what — the tension in a decision, or the failure
