@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
+use tokio::signal::unix::{Signal, SignalKind, signal};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
@@ -96,19 +97,22 @@ fn ensure_writable(dir: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Resolves when the process is asked to stop: `docker stop`, `systemctl stop`
-/// and a plain `kill` all send SIGTERM, and Ctrl-C in a terminal sends SIGINT.
+/// The two signals that mean "stop": `docker stop`, `systemctl stop` and a
+/// plain `kill` send SIGTERM, and Ctrl-C in a terminal sends SIGINT.
 ///
-/// Unix only, like everything else here: this ships in a Linux container.
-async fn shutdown_signal() -> &'static str {
-    use tokio::signal::unix::{SignalKind, signal};
+/// Registered before the server starts listening, so a kernel that will not
+/// give us the handlers fails the startup with a real error rather than
+/// leaving a process that cannot be shut down cleanly. Unix only, like
+/// everything else here: this ships in a Linux container.
+fn stop_signals() -> std::io::Result<(Signal, Signal)> {
+    Ok((
+        signal(SignalKind::terminate())?,
+        signal(SignalKind::interrupt())?,
+    ))
+}
 
-    // Registration failing means the process cannot be shut down cleanly at
-    // all, which is worth crashing over at startup rather than discovering
-    // during a deploy.
-    let mut term = signal(SignalKind::terminate()).expect("listening for SIGTERM");
-    let mut interrupt = signal(SignalKind::interrupt()).expect("listening for SIGINT");
-
+/// Resolves when either arrives, naming the one that did.
+async fn shutdown_signal(mut term: Signal, mut interrupt: Signal) -> &'static str {
     tokio::select! {
         _ = term.recv() => "SIGTERM",
         _ = interrupt.recv() => "SIGINT",
@@ -150,6 +154,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
+    let (term, interrupt) = stop_signals()?;
+
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "listening");
@@ -160,7 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // it resorts to SIGKILL.
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
-            let signal = shutdown_signal().await;
+            let signal = shutdown_signal(term, interrupt).await;
             tracing::info!(signal, "shutting down");
         })
         .await?;

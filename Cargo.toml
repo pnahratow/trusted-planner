@@ -21,12 +21,31 @@ tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
-# Pedantic and nursery are on deliberately: this is a long-lived, low-traffic
-# app that has to keep working unattended on a NAS, so the cost of an early
-# warning is much lower than the cost of debugging it there later.
+# Pedantic and nursery are denied deliberately: this is a long-lived,
+# low-traffic app that has to keep working unattended on a NAS, so the cost of
+# an early warning is much lower than the cost of debugging it there later.
+#
+# The second group is about panics. A household planner that stops answering is
+# worse than one that shows a wrong label at the far end of the calendar, so
+# nothing outside a test may unwrap, expect, index, slice, cast or panic: the
+# failure has to be handled where it happens or made impossible. Tests are
+# exempted in clippy.toml, where a panic is the point.
 [lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"
 
 [profile.release]
 # A NAS has no use for the symbol table, and it is most of the binary.

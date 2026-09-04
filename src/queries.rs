@@ -523,8 +523,12 @@ pub fn tasks_for_lists(
          WHERE deleted_at IS NULL AND list_id IN ({placeholders})
          ORDER BY list_id, {order}"
     );
-    let refs: Vec<&dyn rusqlite::ToSql> =
-        list_ids.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+    // An unsizing coercion at the return position rather than an `as` cast,
+    // which reads the same and cannot be a silent numeric conversion.
+    let refs: Vec<&dyn rusqlite::ToSql> = list_ids
+        .iter()
+        .map(|id| -> &dyn rusqlite::ToSql { id })
+        .collect();
     conn.prepare(&sql)?
         .query_map(refs.as_slice(), map_task)?
         .collect()
@@ -661,7 +665,7 @@ pub fn position_after(
         // The neighbour is gone (deleted or moved by someone else); appending
         // is closer to the intent than silently landing at the top.
         || ids.len(),
-        |i| i + 1,
+        |i| i.saturating_add(1),
     );
     Ok(i64::try_from(target).unwrap_or(i64::MAX))
 }
@@ -811,7 +815,7 @@ mod tests {
         let (conn, author, a, b) = fixture();
         let ids = seed(&conn, a, author, &["only"]);
         move_task(&conn, ids[0], b, 0).unwrap();
-        assert_eq!(titles(&conn, a), [] as [std::string::String; 0]);
+        assert_eq!(titles(&conn, a), Vec::<String>::new());
         assert_eq!(titles(&conn, b), ["only"]);
         assert_eq!(positions(&conn, b), [0]);
     }
@@ -1365,7 +1369,7 @@ mod tests {
         assert_eq!(pos, 2);
         move_task(&conn, moved, b, pos).unwrap();
         assert_eq!(titles(&conn, b), ["x", "y", "moved", "z"]);
-        assert_eq!(titles(&conn, a), [] as [std::string::String; 0]);
+        assert_eq!(titles(&conn, a), Vec::<String>::new());
     }
 
     #[test]

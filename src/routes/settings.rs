@@ -31,8 +31,18 @@ pub fn router() -> Router<AppState> {
 /// A small fixed palette: colour means identity (D11), and picking from a
 /// palette keeps identities visually distinct without a colour-picker widget.
 const PALETTE: &[&str] = &[
-    "#3563e9", "#e0533d", "#2ea36b", "#b552d6", "#d99a1f", "#0e9bb5", "#d64f8a", "#5b6470",
+    FIRST_COLOUR,
+    "#e0533d",
+    "#2ea36b",
+    "#b552d6",
+    "#d99a1f",
+    "#0e9bb5",
+    "#d64f8a",
+    "#5b6470",
 ];
+
+/// Named so the fallback below can reach it without indexing the palette.
+const FIRST_COLOUR: &str = "#3563e9";
 
 async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     let me = current_user(&state, &jar)?;
@@ -108,12 +118,20 @@ async fn user_action(
                 "create" if !name.is_empty() => {
                     // Cycle the palette so consecutive users never collide.
                     let n = queries::users(conn)?.len();
+                    // `cycle().nth()` rather than `PALETTE[n % len]`: the
+                    // remainder needs a non-zero length and the index needs to
+                    // be in range, neither of which the compiler can know.
                     let colour = if f.colour.is_empty() {
-                        PALETTE[n % PALETTE.len()].to_string()
+                        PALETTE
+                            .iter()
+                            .cycle()
+                            .nth(n)
+                            .copied()
+                            .unwrap_or(FIRST_COLOUR)
                     } else {
-                        f.colour.clone()
+                        &f.colour
                     };
-                    queries::create_user(conn, &name, &colour)?;
+                    queries::create_user(conn, &name, colour)?;
                 }
                 "update" => {
                     if let Some(id) = f.id

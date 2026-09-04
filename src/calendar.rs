@@ -4,12 +4,45 @@
 use std::sync::OnceLock;
 
 use anyhow::{Result, bail};
-use chrono::{Datelike, Duration, NaiveDate, Weekday};
+use chrono::{Datelike, Days, NaiveDate, Weekday};
 use chrono_tz::Tz;
 
 /// Monday of the week containing `date`. Weeks start Monday (v1, not configurable).
+///
+/// Checked arithmetic throughout this module, and the fallback is always the
+/// date we were given: the only inputs that cannot step are within a week of
+/// the ends of the representable calendar, roughly 262000 BC and AD, and a
+/// planner that is wrong there but never panics is the right trade.
 pub fn monday_of(date: NaiveDate) -> NaiveDate {
-    date - Duration::days(i64::from(date.weekday().num_days_from_monday()))
+    let back = u64::from(date.weekday().num_days_from_monday());
+    date.checked_sub_days(Days::new(back)).unwrap_or(date)
+}
+
+/// `n` days on from `date`, or `date` itself at the end of the calendar.
+pub fn plus_days(date: NaiveDate, n: u64) -> NaiveDate {
+    date.checked_add_days(Days::new(n)).unwrap_or(date)
+}
+
+/// `n` days back from `date`, or `date` itself at the start of the calendar.
+pub fn minus_days(date: NaiveDate, n: u64) -> NaiveDate {
+    date.checked_sub_days(Days::new(n)).unwrap_or(date)
+}
+
+/// A week on, and a week back — how the four-week grid pages, because its rows
+/// only line up while it starts on a Monday.
+pub fn plus_weeks(date: NaiveDate, n: u64) -> NaiveDate {
+    plus_days(date, n.saturating_mul(7))
+}
+
+pub fn minus_weeks(date: NaiveDate, n: u64) -> NaiveDate {
+    minus_days(date, n.saturating_mul(7))
+}
+
+/// The first and last date of a range. `None` for an empty one, which the
+/// callers treat as nothing to render — the alternative is an index that the
+/// caller has to be trusted not to get wrong.
+pub fn ends(dates: &[NaiveDate]) -> Option<(NaiveDate, NaiveDate)> {
+    Some((*dates.first()?, *dates.last()?))
 }
 
 /// The 7 dates of the week starting at `monday`.
@@ -23,11 +56,13 @@ pub fn week_of(monday: NaiveDate) -> Vec<NaiveDate> {
 /// cells some months and 42 others, so the layout reflows as you page through
 /// it and rows change height. Four weeks is always 4x7, every cell the same
 /// size, every row aligned.
-pub const VIEW_WEEKS: i64 = 4;
+pub const VIEW_WEEKS: usize = 4;
 
 /// `weeks` consecutive weeks of dates starting at `monday`.
-pub fn weeks_from(monday: NaiveDate, weeks: i64) -> Vec<NaiveDate> {
-    (0..weeks * 7).map(|i| monday + Duration::days(i)).collect()
+pub fn weeks_from(monday: NaiveDate, weeks: usize) -> Vec<NaiveDate> {
+    std::iter::successors(Some(monday), NaiveDate::succ_opt)
+        .take(weeks.saturating_mul(7))
+        .collect()
 }
 
 /// `YYYY-MM-DD`, the only date format that crosses the wire or hits the database.
@@ -99,45 +134,55 @@ pub fn weekday_name(date: NaiveDate) -> &'static str {
     }
 }
 
-/// Short month label for a column subheading.
+/// Short and full month labels.
 ///
 /// Spelled out here rather than taken from `chrono`'s `%b`, because these are
 /// keys the translation file has to be able to name — and there are exactly
-/// twelve of them, forever.
+/// twelve of them, forever. A match rather than an array, so there is no index
+/// to be out of range and no arm that cannot be reached.
+fn month_labels(date: NaiveDate) -> (&'static str, &'static str) {
+    match date.month() {
+        1 => ("Jan", "January"),
+        2 => ("Feb", "February"),
+        3 => ("Mar", "March"),
+        4 => ("Apr", "April"),
+        5 => ("May", "May"),
+        6 => ("Jun", "June"),
+        7 => ("Jul", "July"),
+        8 => ("Aug", "August"),
+        9 => ("Sep", "September"),
+        10 => ("Oct", "October"),
+        11 => ("Nov", "November"),
+        _ => ("Dec", "December"),
+    }
+}
+
+/// Short month label for a column subheading.
 pub fn month_abbrev(date: NaiveDate) -> &'static str {
-    MONTHS[date.month0() as usize].0
+    month_labels(date).0
 }
 
 /// Full month name, for the day panel's heading.
 pub fn month_name(date: NaiveDate) -> &'static str {
-    MONTHS[date.month0() as usize].1
+    month_labels(date).1
 }
-
-const MONTHS: [(&str, &str); 12] = [
-    ("Jan", "January"),
-    ("Feb", "February"),
-    ("Mar", "March"),
-    ("Apr", "April"),
-    ("May", "May"),
-    ("Jun", "June"),
-    ("Jul", "July"),
-    ("Aug", "August"),
-    ("Sep", "September"),
-    ("Oct", "October"),
-    ("Nov", "November"),
-    ("Dec", "December"),
-];
 
 /// Every label a date can render as. The translation test walks this, so a
 /// thirteenth month cannot appear untranslated.
 #[cfg(test)]
 pub fn all_date_words() -> Vec<&'static str> {
-    let mut words: Vec<&'static str> = MONTHS.iter().flat_map(|(a, b)| [*a, *b]).collect();
+    let mut words = Vec::new();
+    for month in 1..=12 {
+        let first = NaiveDate::from_ymd_opt(2026, month, 1).expect("the first of a real month");
+        let (abbrev, name) = month_labels(first);
+        words.push(abbrev);
+        words.push(name);
+    }
+    // Any Monday will do; a week from it names all seven days.
     let monday = NaiveDate::from_ymd_opt(2026, 8, 31).expect("a real Monday");
-    for i in 0..7 {
-        let d = monday + Duration::days(i);
-        words.push(weekday_label(d));
-        words.push(weekday_name(d));
+    for date in weeks_from(monday, 1) {
+        words.push(weekday_label(date));
+        words.push(weekday_name(date));
     }
     words
 }
@@ -149,6 +194,7 @@ pub fn today() -> NaiveDate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
 
     fn d(s: &str) -> NaiveDate {
         parse(s).unwrap()
@@ -204,7 +250,7 @@ mod tests {
     #[test]
     fn every_row_of_the_grid_starts_on_a_monday() {
         let grid = weeks_from(d("2026-08-31"), VIEW_WEEKS);
-        for row in 0..usize::try_from(VIEW_WEEKS).unwrap() {
+        for row in 0..VIEW_WEEKS {
             assert_eq!(grid[row * 7].weekday(), Weekday::Mon);
             assert_eq!(grid[row * 7 + 6].weekday(), Weekday::Sun);
         }
@@ -219,14 +265,37 @@ mod tests {
 
     #[test]
     fn month_labels_line_up_with_the_month() {
-        for (n, (abbrev, name)) in MONTHS.iter().enumerate() {
-            let first = NaiveDate::from_ymd_opt(2026, u32::try_from(n).unwrap() + 1, 1).unwrap();
-            assert_eq!(month_abbrev(first), *abbrev);
-            assert_eq!(month_name(first), *name);
-            assert!(name.starts_with(abbrev) || *name == "March" || *name == "May");
+        // Every month of a year, and every day of one, so a mislabelled arm
+        // cannot hide behind the first of the month.
+        let mut seen = Vec::new();
+        let mut date = d("2026-01-01");
+        while date.year() == 2026 {
+            let (abbrev, name) = month_labels(date);
+            assert!(
+                name.starts_with(abbrev),
+                "{name} should start with {abbrev}"
+            );
+            if !seen.contains(&(abbrev, name)) {
+                seen.push((abbrev, name));
+            }
+            date = plus_days(date, 1);
         }
+        assert_eq!(seen.len(), 12, "twelve distinct months, in order");
+        assert_eq!(seen.first(), Some(&("Jan", "January")));
+        assert_eq!(seen.last(), Some(&("Dec", "December")));
         assert_eq!(month_abbrev(d("2026-09-04")), "Sep");
         assert_eq!(month_name(d("2026-12-31")), "December");
+    }
+
+    #[test]
+    fn stepping_stops_at_the_ends_of_the_calendar_rather_than_panicking() {
+        let last = NaiveDate::MAX;
+        assert_eq!(plus_days(last, 1), last);
+        assert_eq!(minus_days(NaiveDate::MIN, 1), NaiveDate::MIN);
+        assert_eq!(monday_of(NaiveDate::MIN), NaiveDate::MIN);
+        // And an ordinary date still steps.
+        assert_eq!(plus_days(d("2026-09-04"), 1), d("2026-09-05"));
+        assert_eq!(minus_days(d("2026-09-04"), 4), d("2026-08-31"));
     }
 
     #[test]

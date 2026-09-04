@@ -216,8 +216,13 @@ fn load_grid(
         // Spines only mean something where more than one person writes (D11).
         let show_colour = queries::board_member_count(conn, board_id)? > 1;
 
-        let from = calendar::fmt(dates[0]);
-        let to = calendar::fmt(*dates.last().expect("a grid always spans some dates"));
+        // An empty range renders nothing, the same answer a missing board
+        // gets — and it means no date below has to be reached for by index.
+        let Some((from, to)) = calendar::ends(dates) else {
+            return Ok(None);
+        };
+        let from = calendar::fmt(from);
+        let to = calendar::fmt(to);
         let day_lists =
             queries::day_lists_in_range(conn, board_id, &from, &to).context("loading day lists")?;
         let custom = queries::custom_lists(conn, board_id).context("loading custom lists")?;
@@ -349,14 +354,16 @@ async fn week(
             self_url => format!("/b/{board_id}/w/{}", calendar::fmt(start)),
             // One day at a time, so you can slide the window onto whatever
             // stretch you are actually planning.
-            prev_url => format!("/b/{board_id}/w/{}", calendar::fmt(start - chrono::Duration::days(1))),
-            next_url => format!("/b/{board_id}/w/{}", calendar::fmt(start + chrono::Duration::days(1))),
+            prev_url => format!("/b/{board_id}/w/{}", calendar::fmt(calendar::minus_days(start, 1))),
+            next_url => format!("/b/{board_id}/w/{}", calendar::fmt(calendar::plus_days(start, 1))),
             today_url => format!("/b/{board_id}/w/{}", calendar::fmt(calendar::monday_of(calendar::today()))),
             // The four-week grid must start on a Monday for its rows to line
             // up, so switching snaps to the Monday of the week you are on.
             switch_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(start))),
             switch_label => loc.t("4 weeks"),
-            range_label => range_label(dates[0], *dates.last().expect("a week has seven days"), &loc),
+            // The week is `start` plus six days by construction, so its ends
+            // are known without looking them up in the range.
+            range_label => range_label(start, calendar::plus_days(start, 6), &loc),
         },
     )
 }
@@ -410,10 +417,9 @@ async fn four_weeks(
         monday,
     );
 
-    // A week at a time: the grid has to start on a Monday for its rows to line
-    // up, and stepping by a single week is the finest move that preserves that.
-    let step = chrono::Duration::days(7);
-    let last = *dates.last().expect("four weeks is never empty");
+    // The grid is four whole weeks from `monday`, so its last day is a known
+    // distance away rather than something to fetch out of the range.
+    let last = calendar::minus_days(calendar::plus_weeks(monday, 4), 1);
 
     render(
         &state,
@@ -432,13 +438,16 @@ async fn four_weeks(
             cells => grid.days,
             lists => grid.lists,
             show_colour => grid.show_colour,
-            weekday_names => dates[..7]
+            // The header row names the seven weekdays, which the first week of
+            // the grid supplies in order.
+            weekday_names => dates
                 .iter()
+                .take(7)
                 .map(|d| loc.t(calendar::weekday_label(*d)))
                 .collect::<Vec<_>>(),
             self_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday)),
-            prev_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday - step)),
-            next_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday + step)),
+            prev_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::minus_weeks(monday, 1))),
+            next_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::plus_weeks(monday, 1))),
             today_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(calendar::today()))),
             switch_url => format!("/b/{board_id}/w/{}", calendar::fmt(monday)),
             switch_label => loc.t("Week"),

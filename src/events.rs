@@ -21,7 +21,7 @@
 //! answer any client no matter how far behind it is.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::views::ColumnKey;
 
@@ -51,9 +51,18 @@ impl ChangeLog {
         }
     }
 
+    /// The log, whether or not a previous holder panicked. There is nothing in
+    /// here but a counter and a map of column versions, so a panic elsewhere
+    /// cannot have left it in a state worth refusing to read.
+    fn inner(&self) -> MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub fn record(&self, board_id: i64, key: &ColumnKey) {
-        let mut inner = self.inner.lock().expect("change log poisoned");
-        inner.seq += 1;
+        let mut inner = self.inner();
+        // Saturating for the lint's sake. At one write a nanosecond this would
+        // take five hundred years to reach, and it only ever climbs.
+        inner.seq = inner.seq.saturating_add(1);
         let seq = inner.seq;
         inner.columns.insert((board_id, key.as_string()), seq);
         drop(inner);
@@ -61,7 +70,7 @@ impl ChangeLog {
 
     /// The version a freshly rendered page reflects.
     pub fn current_seq(&self) -> u64 {
-        self.inner.lock().expect("change log poisoned").seq
+        self.inner().seq
     }
 
     /// Columns on this board that changed after `since`.
@@ -69,7 +78,7 @@ impl ChangeLog {
     /// A client arbitrarily far behind is served correctly, because each column
     /// carries its latest version rather than a place in a queue.
     pub fn since(&self, board_id: i64, since: u64) -> Changes {
-        let inner = self.inner.lock().expect("change log poisoned");
+        let inner = self.inner();
         let keys = inner
             .columns
             .iter()

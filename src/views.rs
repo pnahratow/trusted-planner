@@ -168,6 +168,9 @@ pub fn column_view(
     density: &'static str,
 ) -> ColumnView {
     let shown = limit_for(density).map_or(tasks.len(), |n| n.min(tasks.len()));
+    // `get` and `saturating_sub` rather than a slice and a subtraction: both
+    // are within range by construction, and neither needs to be trusted to be.
+    let visible = tasks.get(..shown).unwrap_or(tasks);
     ColumnView {
         key: key.as_string(),
         heading,
@@ -176,11 +179,8 @@ pub fn column_view(
         is_today: matches!(key, ColumnKey::Day(d) if d == calendar::today()),
         list_id,
         density,
-        tasks: tasks[..shown]
-            .iter()
-            .map(|t| task_view(t, authors))
-            .collect(),
-        hidden: tasks.len() - shown,
+        tasks: visible.iter().map(|t| task_view(t, authors)).collect(),
+        hidden: tasks.len().saturating_sub(shown),
     }
 }
 

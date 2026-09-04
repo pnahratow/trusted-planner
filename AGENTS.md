@@ -15,6 +15,18 @@ PLANNER_DATA_DIR=./data cargo run
 Templates are re-read on every render, so a template change needs no rebuild
 and no restart — reload the page.
 
+## The lints are denials, not suggestions
+
+`cargo clippy --all-targets` must be silent. Pedantic and nursery are denied,
+and so is every ordinary way of panicking: no `unwrap`, `expect`, `panic!`,
+indexing, slicing, `as`, or unchecked arithmetic outside a test. In practice
+that means `get(..)`, `checked_*`/`saturating_*`, `try_from`, a `let ... else`,
+or a total `match`. If a value really cannot be absent, say so by making it
+impossible rather than by asserting it — `calendar::ends` returning `Option`
+instead of `dates[0]` is the pattern.
+
+Tests may unwrap, expect, panic and index; `clippy.toml` allows exactly that.
+
 ## Failures that are silent
 
 - **Nested `db.with` deadlocks the process.** There is one connection behind a

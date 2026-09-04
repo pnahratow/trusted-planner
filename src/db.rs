@@ -4,7 +4,7 @@
 //! connection is plenty; a pool would be a dependency with nothing to earn it.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -19,6 +19,19 @@ const MIGRATIONS: &[(i64, &str)] = &[
 
 pub struct Db {
     conn: Mutex<Connection>,
+}
+
+impl Db {
+    /// The connection, whether or not a previous holder panicked.
+    ///
+    /// A poisoned mutex means some other request panicked mid-query. That is
+    /// worth knowing about, but it is not a reason to refuse every request
+    /// afterwards: SQLite is consistent either way — an interrupted
+    /// transaction was rolled back when its guard dropped — so the planner
+    /// carries on rather than needing a restart to serve a page again.
+    fn conn(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl Db {
@@ -45,7 +58,7 @@ impl Db {
     /// Runs any migrations the database has not seen yet, each in its own
     /// transaction so a failure leaves the schema at the last good version.
     fn migrate(&self) -> Result<()> {
-        let mut conn = self.conn.lock().expect("db mutex poisoned");
+        let mut conn = self.conn();
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -89,7 +102,7 @@ impl Db {
         &self,
         f: impl FnOnce(&Connection) -> std::result::Result<T, E>,
     ) -> std::result::Result<T, E> {
-        let conn = self.conn.lock().expect("db mutex poisoned");
+        let conn = self.conn();
         let out = f(&conn);
         drop(conn); // release before the caller does anything with the result
         out
@@ -119,7 +132,7 @@ impl Db {
     where
         E: From<rusqlite::Error>,
     {
-        let mut conn = self.conn.lock().expect("db mutex poisoned");
+        let mut conn = self.conn();
         let tx = conn.transaction()?;
         let out = f(&tx)?;
         tx.commit()?;
