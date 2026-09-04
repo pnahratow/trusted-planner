@@ -4,7 +4,7 @@
 
 services:
   planner:
-    image: trusted-planner:0.2.0
+    image: trusted-planner:0.3.0
     container_name: trusted-planner
     restart: unless-stopped
 
