@@ -13,7 +13,7 @@ use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde::Deserialize;
 
 use crate::error::AppResult;
-use crate::routes::{IDENTITY_COOKIE, current_user, locale, render};
+use crate::routes::{IDENTITY_COOKIE, current_user, locale, render, saved};
 use crate::{AppState, queries};
 
 pub fn router() -> Router<AppState> {
@@ -95,9 +95,13 @@ struct UserForm {
     theme: Option<String>,
 }
 
-async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> AppResult {
+async fn user_action(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Form(f): Form<UserForm>,
+) -> AppResult {
     let name = f.name.trim().to_string();
-    state
+    let repaint = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             match f.action.as_str() {
@@ -115,13 +119,12 @@ async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> 
                     if let Some(id) = f.id
                         && !name.is_empty()
                     {
-                        queries::update_user(
-                            conn,
-                            id,
-                            &name,
-                            &f.colour,
-                            f.theme.as_deref().unwrap_or("system"),
-                        )?;
+                        let theme = f.theme.as_deref().unwrap_or("system");
+                        // A new theme repaints every page, so the page has to
+                        // be told to come back for it.
+                        let was = queries::user(conn, id)?.map(|u| u.theme);
+                        queries::update_user(conn, id, &name, &f.colour, theme)?;
+                        return Ok(was.as_deref() != Some(theme));
                     }
                 }
                 "delete" => {
@@ -131,11 +134,12 @@ async fn user_action(State(state): State<AppState>, Form(f): Form<UserForm>) -> 
                 }
                 _ => {}
             }
-            Ok(())
+            // Adding or removing a person changes what the page lists.
+            Ok(true)
         })
         .with_context(|| format!("user action {:?}", f.action))?;
 
-    Ok(Redirect::to("/settings").into_response())
+    Ok(saved(&headers, repaint))
 }
 
 #[derive(Deserialize)]
@@ -150,9 +154,13 @@ struct BoardForm {
     member: Vec<i64>,
 }
 
-async fn board_action(State(state): State<AppState>, Form(f): Form<BoardForm>) -> AppResult {
+async fn board_action(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Form(f): Form<BoardForm>,
+) -> AppResult {
     let name = f.name.trim().to_string();
-    state
+    let repaint = state
         .db
         .transaction(|tx| -> anyhow::Result<_> {
             match f.action.as_str() {
@@ -166,6 +174,8 @@ async fn board_action(State(state): State<AppState>, Form(f): Form<BoardForm>) -
                             queries::rename_board(tx, id, &name)?;
                         }
                         queries::set_board_members(tx, id, &f.member)?;
+                        // The name and the ticks are already on the screen.
+                        return Ok(false);
                     }
                 }
                 "delete" => {
@@ -175,11 +185,11 @@ async fn board_action(State(state): State<AppState>, Form(f): Form<BoardForm>) -
                 }
                 _ => {}
             }
-            Ok(())
+            Ok(true)
         })
         .with_context(|| format!("board action {:?}", f.action))?;
 
-    Ok(Redirect::to("/settings").into_response())
+    Ok(saved(&headers, repaint))
 }
 
 #[derive(Deserialize)]
@@ -193,7 +203,11 @@ struct ListForm {
     name: String,
 }
 
-async fn list_action(State(state): State<AppState>, Form(f): Form<ListForm>) -> AppResult {
+async fn list_action(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Form(f): Form<ListForm>,
+) -> AppResult {
     let name = f.name.trim().to_string();
     state
         .db
@@ -222,7 +236,8 @@ async fn list_action(State(state): State<AppState>, Form(f): Form<ListForm>) -> 
         })
         .with_context(|| format!("list action {:?}", f.action))?;
 
-    Ok(Redirect::to("/settings").into_response())
+    // Adding, renaming or deleting a list changes the chips on the page.
+    Ok(saved(&headers, true))
 }
 
 #[derive(Deserialize)]
@@ -238,7 +253,11 @@ struct DisplayForm {
 
 /// App-wide display settings. Deliberately not per-user: two people looking at
 /// the same shared column should not see it in two different orders.
-async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm>) -> AppResult {
+async fn display_action(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Form(f): Form<DisplayForm>,
+) -> AppResult {
     let on = f.move_completed_to_bottom.is_some();
     let overdue = match f.overdue_action.as_deref() {
         Some(queries::OVERDUE_LEAVE) => queries::OVERDUE_LEAVE,
@@ -252,18 +271,22 @@ async fn display_action(State(state): State<AppState>, Form(f): Form<DisplayForm
         .as_deref()
         .filter(|code| crate::i18n::is_known(code))
         .map(str::to_string);
-    state
+    let repaint = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             queries::set_flag(conn, queries::MOVE_COMPLETED, on)?;
             queries::set_setting(conn, queries::OVERDUE_ACTION, overdue)?;
+            let mut repaint = false;
             if let Some(language) = &language {
+                // Every word on the page is about to change.
+                repaint = queries::get_setting(conn, queries::LANGUAGE, crate::i18n::DEFAULT)?
+                    != *language;
                 queries::set_setting(conn, queries::LANGUAGE, language)?;
             }
-            Ok(())
+            Ok(repaint)
         })
         .context("saving the display settings")?;
-    Ok(Redirect::to("/settings").into_response())
+    Ok(saved(&headers, repaint))
 }
 
 #[derive(Deserialize)]

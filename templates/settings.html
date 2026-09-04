@@ -11,11 +11,13 @@
     <li>
       {# No Save button: a settings change is the instruction, not a draft of
          one. `change` fires on blur or Enter for the name, immediately for a
-         radio or a select, and it bubbles, so one handler on the form covers
-         every control in it. requestSubmit rather than submit, so `required`
-         still stops an empty name. #}
+         radio or a select, and it bubbles, so naming it once on the form
+         covers every control in it. htmx rather than a plain submit, because a
+         redirect back to this page would land it at the top on every tick; the
+         server answers 204 and nothing moves. `method`/`action` stay as the
+         fallback if htmx is not there. #}
       <form method="post" action="/settings/user" class="row-form"
-            onchange="this.requestSubmit()">
+            hx-post="/settings/user" hx-trigger="change, submit" hx-swap="none">
         <input type="hidden" name="action" value="update">
         <input type="hidden" name="id" value="{{ u.id }}">
         <input type="text" name="name" value="{{ u.name }}" required>
@@ -37,7 +39,8 @@
           {% endfor %}
         </select>
       </form>
-      <form method="post" action="/settings/user" class="inline-form">
+      <form method="post" action="/settings/user" class="inline-form"
+              hx-post="/settings/user" hx-swap="none">
         <input type="hidden" name="action" value="delete">
         <input type="hidden" name="id" value="{{ u.id }}">
         <button type="submit" class="btn-danger"
@@ -49,7 +52,8 @@
   {% endfor %}
   </ul>
 
-  <form method="post" action="/settings/user" class="add-form">
+  <form method="post" action="/settings/user" class="add-form"
+          hx-post="/settings/user" hx-swap="none">
     <input type="hidden" name="action" value="create">
     <input type="text" name="name" placeholder="{{ 'New user name' | t }}" required>
     <button type="submit" class="btn-primary">{{ "Add user" | t }}</button>
@@ -63,7 +67,7 @@
   {% for b in boards %}
   <div class="board-card">
     <form method="post" action="/settings/board" class="row-form"
-          onchange="this.requestSubmit()">
+          hx-post="/settings/board" hx-trigger="change, submit" hx-swap="none">
       <input type="hidden" name="action" value="update">
       <input type="hidden" name="id" value="{{ b.id }}">
       <input type="text" name="name" value="{{ b.name }}" required>
@@ -81,7 +85,8 @@
     <div class="board-lists">
       <span class="muted">{{ "Custom lists:" | t }}</span>
       {% for l in b.lists %}
-        <form method="post" action="/settings/list" class="inline-form">
+        <form method="post" action="/settings/list" class="inline-form"
+          hx-post="/settings/list" hx-swap="none">
           <input type="hidden" name="action" value="delete">
           <input type="hidden" name="id" value="{{ l.id }}">
           <span class="chip">{{ l.name }}
@@ -91,7 +96,8 @@
       {% else %}
         <span class="muted">{{ "none" | t }}</span>
       {% endfor %}
-      <form method="post" action="/settings/list" class="inline-form">
+      <form method="post" action="/settings/list" class="inline-form"
+          hx-post="/settings/list" hx-swap="none">
         <input type="hidden" name="action" value="create">
         <input type="hidden" name="board_id" value="{{ b.id }}">
         <input type="text" name="name" placeholder="{{ '+ list' | t }}" size="10" required>
@@ -99,7 +105,8 @@
       </form>
     </div>
 
-    <form method="post" action="/settings/board" class="inline-form">
+    <form method="post" action="/settings/board" class="inline-form"
+            hx-post="/settings/board" hx-swap="none">
       <input type="hidden" name="action" value="delete">
       <input type="hidden" name="id" value="{{ b.id }}">
       <button type="submit" class="btn-danger"
@@ -110,7 +117,8 @@
   <p class="muted">{{ "No boards yet." | t }}</p>
   {% endfor %}
 
-  <form method="post" action="/settings/board" class="add-form">
+  <form method="post" action="/settings/board" class="add-form"
+        hx-post="/settings/board" hx-swap="none">
     <input type="hidden" name="action" value="create">
     <input type="text" name="name" placeholder="{{ 'New board name' | t }}" required>
     <span class="members">
@@ -128,7 +136,7 @@
   <h2>{{ "Display" | t }}</h2>
   <p class="muted">{{ "Applies to everyone. Ordering belongs to the column, not to the person reading it — two people looking at the same shared list should not see it in two different orders." | t }}</p>
   <form method="post" action="/settings/display" class="display-form"
-        onchange="this.requestSubmit()">
+        hx-post="/settings/display" hx-trigger="change, submit" hx-swap="none">
     <label class="inline-check">
       <input type="checkbox" name="move_completed_to_bottom"
              {% if move_completed %}checked{% endif %}>

@@ -175,6 +175,14 @@ blur for a text field and immediately for anything else. Adding and removing
 still have buttons, because those are not adjustments to something already
 there.
 
+Saving does not move the page. Every form posts through htmx, so a save is a
+request rather than a navigation — a redirect back to `/settings` would land
+you at the top of it, which is unbearable when a checkbox saves itself. The
+server answers with nothing at all when the page already shows the result, and
+asks for a reload only when the page would genuinely look different: a row
+added or removed, or the theme or language, which repaint everything. A reload
+keeps your scroll position; a navigation cannot.
+
 ## Theme
 
 Light, dark, or system, per person — it is about the eyes in front of the

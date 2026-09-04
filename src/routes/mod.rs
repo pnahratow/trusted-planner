@@ -87,6 +87,35 @@ pub fn theme_cycle(current: &str) -> (&'static str, &'static str) {
     }
 }
 
+/// How a settings write answers.
+///
+/// A redirect back to `/settings` is a fresh navigation, so the browser lands
+/// at the top of the page — which, when every control saves itself, happens on
+/// every tick of a checkbox. htmx asks instead, and gets one of two answers:
+///
+/// - **nothing** (204), when the page already shows the result. You typed the
+///   name; it is in front of you. Nothing moves, nothing is re-fetched, and
+///   whatever you were halfway through typing elsewhere survives.
+/// - **reload**, when the page would genuinely look different: a row added or
+///   removed, or a setting that repaints everything, like the theme or the
+///   language. `HX-Refresh` reloads in place, and the browser restores the
+///   scroll position on a reload, which it cannot do across a navigation.
+///
+/// A browser that did not come through htmx still gets the redirect, so the
+/// forms keep working the ordinary way.
+pub fn saved(headers: &axum::http::HeaderMap, repaint: bool) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::{IntoResponse, Redirect};
+
+    if !headers.contains_key("HX-Request") {
+        return Redirect::to("/settings").into_response();
+    }
+    if repaint {
+        return (StatusCode::NO_CONTENT, [("HX-Refresh", "true")]).into_response();
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// The words in force, from the app-wide setting.
 ///
 /// A read per render, which is the same single indexed row every page already
