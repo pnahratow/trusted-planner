@@ -304,19 +304,24 @@ button.column-head:hover { background: color-mix(in srgb, var(--accent) 8%, tran
 /* Deliberately quiet: it is the empty slot at the end of the list, not a
    call to action repeated seven times across the screen. */
 .add-task { border-top: 1px solid transparent; flex: none; }
-.add-input {
+/* `.add-task .add-input`, not `.add-input`: the generic `input[type="text"]`
+   rule above is one specificity point heavier than a bare class, so the border
+   and the page-coloured background it hands every text field were winning here
+   — which drew the quiet empty slot at the foot of each column as a pill, and
+   twenty-eight pills across a four-week grid is a lot of furniture. */
+.add-task .add-input {
   width: 100%; border: 0; border-radius: 6px;
   background: transparent; padding: 6px 8px;
   color: var(--text);
 }
-.add-input::placeholder { color: var(--muted); opacity: 0.5; }
-.add-input:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.add-input:hover::placeholder { opacity: 0.9; }
-.add-input:focus {
+.add-task .add-input::placeholder { color: var(--muted); opacity: 0.5; }
+.add-task .add-input:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.add-task .add-input:hover::placeholder { opacity: 0.9; }
+.add-task .add-input:focus {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   outline: none;
 }
-.add-input:focus::placeholder { opacity: 0; }
+.add-task .add-input:focus::placeholder { opacity: 0; }
 
 /* -------------------------------------------------------------- editing */
 
