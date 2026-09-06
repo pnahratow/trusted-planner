@@ -135,6 +135,33 @@ people on a laptop and a big monitor are entitled to disagree. The URL is still
 the truth while you are on a page, so a link you paste opens the view you
 copied; the memory only decides where `/` and the board picker send you.
 
+## Editing a task
+
+Click a title and the row becomes an editor in place. There is no Save button
+and no Cancel button, for the same reason the settings page has none: the
+change *is* the instruction. Click anywhere else, or tab out of it, and the
+editor closes and the edit is saved.
+
+Two things follow from that, and both are deliberate:
+
+- **Escape is the way out that discards.** If leaving saves, then leaving
+  cannot also mean "forget that", so the one deliberate keystroke does. Opening
+  a row to read its notes and clicking away costs nothing either: an editor
+  whose fields are untouched closes without writing anything, because a save
+  bumps the version — which would make every other editor open on that task
+  stale, and send every other browser to re-fetch the column, for a change
+  nobody made.
+- **A conflict still has both buttons.** When someone else has changed the task
+  while you had it open, the save is refused and the editor comes back holding
+  your draft and their saved value, and asks which you meant. That is the one
+  moment the editor is asking a question rather than recording an answer, so it
+  is the one moment it puts buttons on screen — and clicking away is not an
+  answer to it, so a conflicted editor stays open until you pick one.
+
+Emptying the title and walking away is not an instruction to name it nothing;
+the editor closes and the title stays as it was. Deleting is a separate button
+on the row.
+
 ## Two kinds of thing
 
 A day holds two kinds of entry, and the difference is what happens when the day

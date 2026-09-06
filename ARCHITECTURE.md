@@ -4,9 +4,9 @@ A guided tour for someone who wants to change something and needs to know where
 to look first. The README says what the app does and why it behaves the way it
 does; this says how it is built and in what order to read it.
 
-Size, so you know what you are in for: about 2,700 lines of Rust plus 1,000
-lines of tests (70 of them), 11 templates, one 320-line JavaScript file, one
-440-line stylesheet. It is small enough to read in an afternoon, and the tour
+Size, so you know what you are in for: about 3,400 lines of Rust plus 1,700
+lines of tests (95 of them), 12 templates, one 330-line JavaScript file, one
+590-line stylesheet. It is small enough to read in an afternoon, and the tour
 below is roughly that afternoon in order.
 
 ## What it is, in one paragraph
@@ -154,7 +154,7 @@ migrations/      001..003 — embedded at build time, listed in db.rs
 6. **`src/events.rs`** and the poll loop at the bottom of `static/app.js`. Fifty
    lines of idea: a counter, and the value it had when each column last changed.
 7. **`static/app.js`** in full, once you know what a column is. Focus guard,
-   click-away-to-cancel, SortableJS wiring, the deferred refresh of a column
+   click-away-to-save, SortableJS wiring, the deferred refresh of a column
    holding an open editor.
 8. **`src/queries.rs`** last, and by need rather than in order. It is long
    because it is one function per statement, and half of it is tests. The parts

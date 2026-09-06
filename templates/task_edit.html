@@ -38,11 +38,31 @@
         <span>{{ "Appointment" | t }}</span>
       </label>
     </div>
+    {% if conflict %}
+    {# The one moment the editor asks for a decision is the one moment it shows
+       buttons: the banner above names two ways out, and clicking away is
+       neither of them. #}
     <div class="edit-actions">
       <button type="submit" class="btn-primary">{{ "Save" | t }}</button>
       <button type="button" class="btn-plain" data-cancel-edit
               hx-get="/task/{{ task.id }}/row"
               hx-target="closest .task" hx-swap="outerHTML">{{ "Cancel" | t }}</button>
     </div>
+    {% else %}
+    {# No Save button: leaving the editor is the instruction, the way the
+       settings page works. The buttons are still here, invisibly, because they
+       are still how it happens — app.js clicks them rather than re-issuing
+       their requests itself, so the URL and the target stay declared once, in
+       the markup, and clicking away can never drift from what they do.
+
+       Sr-only rather than absent, for two more reasons. A form with no submit
+       button only submits on Enter while exactly one field blocks implicit
+       submission — true here today, and quietly false the day a second text
+       input is added. And a screen reader needs something to press. #}
+    <button type="submit" class="sr-only" data-save-edit>{{ "Save" | t }}</button>
+    <button type="button" class="sr-only" data-cancel-edit
+            hx-get="/task/{{ task.id }}/row"
+            hx-target="closest .task" hx-swap="outerHTML">{{ "Cancel" | t }}</button>
+    {% endif %}
   </form>
 </li>

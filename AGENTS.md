@@ -6,7 +6,7 @@ of the source and the reading order. This file is only the things that bite.
 ## Commands
 
 ```sh
-cargo test                   # 70 tests, all must pass
+cargo test                   # 95 tests, all must pass
 cargo clippy --all-targets   # pedantic + nursery are on: must be warning-free
 cargo fmt --check            # stock rustfmt, no config
 PLANNER_DATA_DIR=./data cargo run

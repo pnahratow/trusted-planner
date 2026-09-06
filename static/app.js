@@ -79,26 +79,75 @@
     }, UNDO_MS);
   });
 
-  // -------------------------------------------------- click away to cancel
+  // --------------------------------------------------- click away to save
   //
-  // An open editor is dismissed by clicking anything that is not part of it,
-  // or by pressing Escape. Cancelling swaps the plain row back over just that
-  // row, so a second editor elsewhere in the same column is left alone.
+  // An open editor is closed by clicking anything that is not part of it, by
+  // tabbing out of it, or by pressing Escape. There is no Save button: leaving
+  // is the instruction, the way the settings page works — the change *is* what
+  // you meant, and a button to confirm it asks a question that has already
+  // been answered.
+  //
+  // Escape is the exception, and the only way out that discards: closing by
+  // leaving cannot also mean "forget that", so the one deliberate keystroke
+  // does.
+  //
+  // Both endings click the editor's own button rather than re-issuing its
+  // request here, so the URLs and the targets stay declared in the markup, in
+  // one place, and closing can never drift from what the buttons do.
+  function closingAlready(editor) {
+    if (editor.dataset.closing) return true; // a stray second event must not re-fire
+    editor.dataset.closing = "1";
+    return false;
+  }
+
   function cancelEditor(editor) {
-    if (editor.dataset.cancelling) return; // a stray second click must not re-fire
     var button = editor.querySelector("[data-cancel-edit]");
-    if (!button) return;
-    editor.dataset.cancelling = "1";
-    // Click the editor's own Cancel button rather than re-issuing its request
-    // here: the URL and the target stay declared in the markup, in one place,
-    // and clicking away can never drift from what the button does.
+    if (!button || closingAlready(editor)) return;
     button.click();
   }
 
-  function cancelEditorsOutside(target) {
+  // Nothing typed, nothing switched: the save would be a write that changes no
+  // field, and writes are not free here — one bumps the version, which makes
+  // every other editor open on this task stale, and tells every other browser
+  // to re-fetch the column. Opening a row to read its notes and clicking away
+  // must cost nothing, so that closes by the same path as Cancel.
+  function isDirty(editor) {
+    var fields = editor.querySelectorAll("input, textarea");
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (f.type === "radio" || f.type === "checkbox") {
+        if (f.checked !== f.defaultChecked) return true;
+      } else if (f.value !== f.defaultValue) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function closeEditor(editor) {
+    // A conflict is the one moment the editor is asking something rather than
+    // recording something, and it puts two buttons on screen to ask it with.
+    // Clicking elsewhere is not an answer, so it is not taken as one.
+    if (editor.querySelector(".conflict")) return;
+
+    var save = editor.querySelector("[data-save-edit]");
+    var title = editor.querySelector(".edit-title");
+    // An empty title is refused by the server, which would leave an editor
+    // that will not close. Emptying a title and walking away is not an
+    // instruction to name it nothing; it is leaving it as it was. Anything
+    // else unexpected falls through to Cancel for the same reason: whatever
+    // else happens, the editor closes.
+    if (save && isDirty(editor) && title && title.value.trim()) {
+      if (!closingAlready(editor)) save.click();
+      return;
+    }
+    cancelEditor(editor);
+  }
+
+  function closeEditorsOutside(target) {
     var open = document.querySelectorAll(".task-editing");
     for (var i = 0; i < open.length; i++) {
-      if (!open[i].contains(target)) cancelEditor(open[i]);
+      if (!open[i].contains(target)) closeEditor(open[i]);
     }
   }
 
@@ -122,9 +171,19 @@
       var input = evt.target.parentElement.querySelector(".add-input");
       if (input) input.focus();
     }
-    // Opening another editor is handled by that row's own request; cancelling
+    // Opening another editor is handled by that row's own request; closing
     // this one alongside it is exactly the intent.
-    cancelEditorsOutside(evt.target);
+    closeEditorsOutside(evt.target);
+  });
+
+  // Leaving by keyboard. `relatedTarget` must be a real element: a focusout
+  // with nothing receiving focus is the window itself losing it — switching to
+  // another app is not leaving the editor, and must not save and close it.
+  document.addEventListener("focusout", function (evt) {
+    var editor = evt.target.closest ? evt.target.closest(".task-editing") : null;
+    if (!editor) return;
+    var to = evt.relatedTarget;
+    if (to && !editor.contains(to)) closeEditor(editor);
   });
 
   document.addEventListener("keydown", function (evt) {
@@ -134,7 +193,7 @@
       cancelEditor(editor);
       return;
     }
-    cancelEditorsOutside(document.body);
+    closeEditorsOutside(document.body);
     closeDayPanel();
   });
 
