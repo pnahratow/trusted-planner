@@ -427,6 +427,18 @@ button.column-head:hover { background: color-mix(in srgb, var(--accent) 8%, tran
 .task:active { cursor: grabbing; }
 .task-title, .check, .icon-btn { cursor: pointer; }
 
+/* Holding a finger on a row is now the drag gesture, so the browser's own
+   long-press — text selection, and the iOS callout menu — has to stay out of
+   its way. Pointer-coarse only: with a mouse the press means nothing and the
+   title stays selectable text. */
+@media (pointer: coarse) {
+  .task {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
 /* The gap the row will land in. */
 .drag-ghost {
   opacity: 0.4;

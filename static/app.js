@@ -154,6 +154,15 @@
         draggable: ".task",
         filter: ".empty, .task-editing", // placeholders and open editors don't drag
         animation: 120,
+        // A touch drag and a scroll open with the same gesture, so the drag has to
+        // prove itself: the finger must rest on the row before it picks up, and a
+        // finger that travels more than a few pixels in that time was scrolling
+        // past. Without this every scroll that starts on a task reorders it.
+        // `delayOnTouchOnly` keeps the mouse immediate, where there is no
+        // ambiguity to resolve.
+        delay: 200,
+        delayOnTouchOnly: true,
+        touchStartThreshold: 5,
         ghostClass: "drag-ghost",
         chosenClass: "drag-chosen",
         onEnd: onDrop,
