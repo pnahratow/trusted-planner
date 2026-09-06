@@ -21,6 +21,23 @@
            autocomplete="off" required autofocus>
     <textarea class="edit-notes" name="notes" rows="2"
               placeholder="{{ 'Notes…' | t }}">{{ task.notes }}</textarea>
+
+    {# Radios rather than a checkbox: an unticked checkbox sends nothing, and
+       "kind absent" already means "a task" for the sake of a stale tab, so a
+       checkbox could never say "make this one a task again". Everything is
+       written as a task; this is where the few that are not say so. #}
+    <div class="edit-kind" role="radiogroup" aria-label="{{ 'Task or appointment' | t }}">
+      <label class="kind-choice">
+        <input type="radio" name="kind" value="task"
+               {% if not task.is_appointment %}checked{% endif %}>
+        <span>{{ "Task" | t }}</span>
+      </label>
+      <label class="kind-choice">
+        <input type="radio" name="kind" value="appointment"
+               {% if task.is_appointment %}checked{% endif %}>
+        <span>{{ "Appointment" | t }}</span>
+      </label>
+    </div>
     <div class="edit-actions">
       <button type="submit" class="btn-primary">{{ "Save" | t }}</button>
       <button type="button" class="btn-plain" data-cancel-edit

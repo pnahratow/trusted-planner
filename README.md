@@ -135,6 +135,35 @@ people on a laptop and a big monitor are entitled to disagree. The URL is still
 the truth while you are on a page, so a link you paste opens the view you
 copied; the memory only decides where `/` and the board picker send you.
 
+## Two kinds of thing
+
+A day holds two kinds of entry, and the difference is what happens when the day
+is over:
+
+- A **task** is owed. It has a checkbox, and if the day passes with the box
+  still empty, the overdue rule below applies to it.
+- An **appointment** happens. It has no checkbox — there is nothing to tick,
+  because it is not a thing you finish — and when its day passes it stays
+  exactly where it was written. The time simply went by, and the day is a
+  record of what was in it.
+
+**Everything is written as a task.** Adding is one field and one keystroke, and
+it stays that way — most of what goes on a day is owed, and a choice at the
+moment of typing would be asked twenty times to be answered once. Click the
+one that is not, and the editor that opens has **Task / Appointment** under the
+notes. It saves with the words, through the same compare-and-swap, so switching
+kind cannot quietly overwrite an edit somebody else made while you had it open.
+
+Ticking a task and then making it an appointment unticks it, because an
+appointment has no box to press: a ticked one would be drawn struck through
+with nothing on screen able to undo it. Switching back gives it an empty box.
+
+Where a task has a checkbox, an appointment has a small clock — a label rather
+than something to press. It stands in the same place, so the column keeps one
+left edge and the row reads as a different kind of entry rather than as one
+that came out crooked. Everything else is the same: it drags between days and into lists, it is edited
+and deleted the same way, and it carries the colour of whoever wrote it.
+
 ## Deleting
 
 There is no "are you sure". Deleting removes the row and offers **Undo** in a
@@ -162,7 +191,10 @@ Settings → Display:
 - **Move it to today**, and again each day it stays unticked.
 - **Leave it** on the day it was written for.
 
-Ticked tasks never move; a finished day stays as a record of itself.
+Ticked tasks never move; a finished day stays as a record of itself. Neither do
+appointments, whatever the setting says — an appointment on a day gone by is
+not something left undone, and sweeping it into `Todo` would turn a record of
+what happened into a list of things to do.
 
 The sweep runs when a board is loaded, not from a timer. A household app that
 sits idle for days should not need a scheduler and a timezone-aware cron to be

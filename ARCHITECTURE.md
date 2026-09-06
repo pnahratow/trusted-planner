@@ -173,6 +173,7 @@ GET /b/1/w/2026-08-31
   routes/board.rs::week
     current_user            cookie -> User, or redirect to /pick
     sweep_overdue           the D23 rule, in a transaction, idempotent
+                            tasks only — an appointment is never overdue
     load_grid               the lists on screen, then one query for all tasks
       views::column_view    per day and per custom list
     render("week.html")     layout.html -> column.html -> task_row.html

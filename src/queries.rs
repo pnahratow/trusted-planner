@@ -420,13 +420,15 @@ pub fn ensure_overdue_list(conn: &Connection, board_id: i64, name: &str) -> Resu
 }
 
 /// Undone tasks sitting on days that have already gone by, oldest first.
+///
+/// Tasks only: an appointment on a day gone by is not overdue, it is over.
 pub fn overdue_tasks(conn: &Connection, board_id: i64, today: &str) -> Result<Vec<Task>> {
     let sql = format!(
         "SELECT {} FROM tasks t
          JOIN lists l ON l.id = t.list_id
          WHERE l.board_id = ?1 AND l.deleted_at IS NULL
            AND l.date IS NOT NULL AND l.date < ?2
-           AND t.deleted_at IS NULL AND t.done = 0
+           AND t.deleted_at IS NULL AND t.done = 0 AND t.kind = 'task'
          ORDER BY l.date, t.position",
         TASK_COLS
             .split(", ")
@@ -482,7 +484,23 @@ pub fn sweep_overdue(
 
 // ---------------------------------------------------------------- tasks
 
-const TASK_COLS: &str = "id, list_id, title, notes, done, author_id, position, version";
+const TASK_COLS: &str = "id, list_id, title, notes, done, kind, author_id, position, version";
+
+/// Something owed: it carries a checkbox, and the overdue rule applies to it.
+pub const KIND_TASK: &str = "task";
+/// Something that happens: no checkbox, and the sweep leaves it alone, because
+/// a time that has passed is not a thing left undone.
+pub const KIND_APPOINTMENT: &str = "appointment";
+
+/// Anything unrecognised is a task, which is the safe reading: it keeps its
+/// checkbox and the rule that was written for it.
+pub fn kind_or_task(kind: &str) -> &str {
+    if kind == KIND_APPOINTMENT {
+        KIND_APPOINTMENT
+    } else {
+        KIND_TASK
+    }
+}
 
 fn map_task(row: &rusqlite::Row<'_>) -> Result<Task> {
     Ok(Task {
@@ -491,9 +509,10 @@ fn map_task(row: &rusqlite::Row<'_>) -> Result<Task> {
         title: row.get(2)?,
         notes: row.get(3)?,
         done: row.get(4)?,
-        author_id: row.get(5)?,
-        position: row.get(6)?,
-        version: row.get(7)?,
+        kind: row.get(5)?,
+        author_id: row.get(6)?,
+        position: row.get(7)?,
+        version: row.get(8)?,
     })
 }
 
@@ -552,6 +571,11 @@ pub fn task(conn: &Connection, id: i64) -> Result<Option<Task>> {
 }
 
 /// Appends to the end of the list.
+///
+/// Always a task. Everything is written as something owed, and the few that
+/// turn out to be appointments are switched afterwards in the editor — so the
+/// kind is the column default here rather than an argument every caller has to
+/// carry.
 pub fn create_task(conn: &Connection, list_id: i64, title: &str, author_id: i64) -> Result<i64> {
     let next: i64 = conn.query_row(
         "SELECT COALESCE(MAX(position), -1) + 1 FROM tasks
@@ -571,10 +595,14 @@ pub fn create_task(conn: &Connection, list_id: i64, title: &str, author_id: i64)
 
 /// Structural op — totally ordered by the server, so it cannot conflict and
 /// deliberately does not take a version.
+///
+/// An appointment has no checkbox to press, so this is a no-op on one rather
+/// than an error: the row is answered with the re-rendered column either way,
+/// and a stale page that still shows a box cannot tick something that has none.
 pub fn toggle_task(conn: &Connection, id: i64) -> Result<()> {
     conn.execute(
         "UPDATE tasks SET done = 1 - done, version = version + 1, updated_at = ?2
-         WHERE id = ?1 AND deleted_at IS NULL",
+         WHERE id = ?1 AND deleted_at IS NULL AND kind = 'task'",
         params![id, now()],
     )?;
     Ok(())
@@ -587,12 +615,20 @@ pub fn update_task_cas(
     id: i64,
     title: &str,
     notes: &str,
+    kind: &str,
     version: i64,
 ) -> Result<bool> {
+    let kind = kind_or_task(kind);
     let changed = conn.execute(
-        "UPDATE tasks SET title = ?2, notes = ?3, version = version + 1, updated_at = ?4
-         WHERE id = ?1 AND version = ?5 AND deleted_at IS NULL",
-        params![id, title, notes, now(), version],
+        // Becoming an appointment unticks it. An appointment has no checkbox,
+        // so a ticked one would render as struck-through with no way back —
+        // `toggle_task` refuses to touch it, by design.
+        "UPDATE tasks
+            SET title = ?2, notes = ?3, kind = ?4,
+                done = CASE WHEN ?4 = 'appointment' THEN 0 ELSE done END,
+                version = version + 1, updated_at = ?5
+          WHERE id = ?1 AND version = ?6 AND deleted_at IS NULL",
+        params![id, title, notes, kind, now(), version],
     )?;
     Ok(changed == 1)
 }
@@ -725,13 +761,12 @@ mod tests {
     /// A board with two lists and a known author, in memory.
     fn fixture() -> (Connection, i64, i64, i64) {
         let conn = Connection::open_in_memory().unwrap();
-        // Every migration, so tests see the same schema production does.
-        conn.execute_batch(include_str!("../migrations/001_init.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!("../migrations/002_global_settings.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!("../migrations/003_board_views.sql"))
-            .unwrap();
+        // The real list, in order, rather than a copy of it: a hand-kept second
+        // list of migrations is one a new migration gets left out of, and the
+        // tests then pass against a schema production does not have.
+        for (_, sql) in crate::db::MIGRATIONS {
+            conn.execute_batch(sql).unwrap();
+        }
         let author = create_user(&conn, "Tester", "#3563e9").unwrap();
         let board = create_board(&conn, "Board").unwrap();
         let a = create_custom_list(&conn, board, "A").unwrap();
@@ -1082,6 +1117,103 @@ mod tests {
         toggle_task(conn, done).unwrap();
         let c = create_task(conn, today, "for today", author).unwrap();
         [a, b, done, c]
+    }
+
+    /// Everything is written as a task; the editor is the only way to become
+    /// an appointment. Returns its id.
+    fn make_appointment(conn: &Connection, list: i64, title: &str, author: i64) -> i64 {
+        let id = create_task(conn, list, title, author).unwrap();
+        let version = task(conn, id).unwrap().unwrap().version;
+        assert!(update_task_cas(conn, id, title, "", KIND_APPOINTMENT, version).unwrap());
+        id
+    }
+
+    /// The distinction the kind exists for: an appointment on a day that has
+    /// gone by is not something left undone, it is something that happened.
+    #[test]
+    fn an_appointment_in_the_past_is_never_overdue() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let mon = ensure_day_list(&conn, board, "2026-09-01").unwrap();
+        let appt = make_appointment(&conn, mon, "dentist", author);
+        create_task(&conn, mon, "call the plumber", author).unwrap();
+
+        let stale = overdue_tasks(&conn, board, TODAY).unwrap();
+        let titles: Vec<_> = stale.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, ["call the plumber"]);
+
+        // And the sweep that runs on every page load leaves it where it is,
+        // under every setting, rather than only the query it is built on.
+        for action in [OVERDUE_TODAY, OVERDUE_LIST] {
+            sweep_overdue(&conn, board, TODAY, action, OVERDUE_LIST_NAME).unwrap();
+            assert_eq!(
+                task(&conn, appt).unwrap().unwrap().list_id,
+                mon,
+                "{action} moved an appointment off the day it happened on"
+            );
+        }
+    }
+
+    /// Nothing on screen offers it, but a stale tab and a hand-written POST
+    /// both can, and neither may put a tick on something with no box.
+    #[test]
+    fn an_appointment_cannot_be_ticked() {
+        let (conn, author, a, _) = fixture();
+        let appt = make_appointment(&conn, a, "dentist", author);
+        let before = task(&conn, appt).unwrap().unwrap();
+
+        toggle_task(&conn, appt).unwrap();
+
+        let after = task(&conn, appt).unwrap().unwrap();
+        assert!(!after.done);
+        assert_eq!(
+            after.version, before.version,
+            "a refused toggle must not age the row either, or every open editor \
+             on it goes stale for nothing"
+        );
+    }
+
+    /// Anything the editor did not send, or sent wrong, is something owed —
+    /// the reading that keeps the checkbox and the overdue rule.
+    #[test]
+    fn an_unrecognised_kind_is_saved_as_a_task() {
+        let (conn, author, a, _) = fixture();
+        let id = make_appointment(&conn, a, "dentist", author);
+        let version = task(&conn, id).unwrap().unwrap().version;
+
+        assert!(update_task_cas(&conn, id, "dentist", "", "nonsense", version).unwrap());
+        assert_eq!(task(&conn, id).unwrap().unwrap().kind, KIND_TASK);
+    }
+
+    /// A ticked task that becomes an appointment must lose the tick with it.
+    /// An appointment has no checkbox to press, so a ticked one would be drawn
+    /// struck through with nothing on screen able to undo it.
+    #[test]
+    fn becoming_an_appointment_unticks_it() {
+        let (conn, author, a, _) = fixture();
+        let id = create_task(&conn, a, "dentist", author).unwrap();
+        toggle_task(&conn, id).unwrap();
+        assert!(task(&conn, id).unwrap().unwrap().done);
+
+        let version = task(&conn, id).unwrap().unwrap().version;
+        assert!(update_task_cas(&conn, id, "dentist", "", KIND_APPOINTMENT, version).unwrap());
+
+        let after = task(&conn, id).unwrap().unwrap();
+        assert!(!after.done);
+        assert_eq!(after.kind, KIND_APPOINTMENT);
+    }
+
+    /// Switching kind goes through the same compare-and-swap as the words do,
+    /// so it cannot quietly overwrite an edit made while the editor was open.
+    #[test]
+    fn switching_kind_on_a_stale_version_is_refused() {
+        let (conn, author, a, _) = fixture();
+        let id = create_task(&conn, a, "dentist", author).unwrap();
+        let stale = task(&conn, id).unwrap().unwrap().version;
+        toggle_task(&conn, id).unwrap(); // someone ticks it under the editor
+
+        assert!(!update_task_cas(&conn, id, "dentist", "", KIND_APPOINTMENT, stale).unwrap());
+        assert_eq!(task(&conn, id).unwrap().unwrap().kind, KIND_TASK);
     }
 
     #[test]
@@ -1435,7 +1567,7 @@ mod tests {
         let id = seed(&conn, a, author, &["draft"])[0];
         let v = task(&conn, id).unwrap().unwrap().version;
 
-        assert!(update_task_cas(&conn, id, "final", "notes", v).unwrap());
+        assert!(update_task_cas(&conn, id, "final", "notes", KIND_TASK, v).unwrap());
         let t = task(&conn, id).unwrap().unwrap();
         assert_eq!(t.title, "final");
         assert_eq!(t.notes, "notes");
@@ -1449,10 +1581,10 @@ mod tests {
         let stale = task(&conn, id).unwrap().unwrap().version;
 
         // Someone else saves first.
-        assert!(update_task_cas(&conn, id, "theirs", "", stale).unwrap());
+        assert!(update_task_cas(&conn, id, "theirs", "", KIND_TASK, stale).unwrap());
 
         // The second editor replays the version they rendered from.
-        assert!(!update_task_cas(&conn, id, "mine", "", stale).unwrap());
+        assert!(!update_task_cas(&conn, id, "mine", "", KIND_TASK, stale).unwrap());
 
         let t = task(&conn, id).unwrap().unwrap();
         assert_eq!(t.title, "theirs", "a refused write must not be merged");
@@ -1473,7 +1605,7 @@ mod tests {
         assert!(task(&conn, id).unwrap().unwrap().done);
 
         // The editor opened before the toggle is now writing against the past.
-        assert!(!update_task_cas(&conn, id, "renamed", "", v).unwrap());
+        assert!(!update_task_cas(&conn, id, "renamed", "", KIND_TASK, v).unwrap());
         assert_eq!(task(&conn, id).unwrap().unwrap().title, "thing");
     }
 
@@ -1483,7 +1615,7 @@ mod tests {
         let id = seed(&conn, a, author, &["gone"])[0];
         let v = task(&conn, id).unwrap().unwrap().version;
         delete_task(&conn, id).unwrap();
-        assert!(!update_task_cas(&conn, id, "back", "", v).unwrap());
+        assert!(!update_task_cas(&conn, id, "back", "", KIND_TASK, v).unwrap());
     }
 
     // ---------------------------------------------------- lazy day lists

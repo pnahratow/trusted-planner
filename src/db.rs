@@ -11,10 +11,13 @@ use rusqlite::Connection;
 
 /// Migrations are embedded so the binary is self-contained; the on-disk
 /// `migrations/` dir is the source of truth at build time only.
-const MIGRATIONS: &[(i64, &str)] = &[
+/// Also what the query tests build their in-memory schema from, so a migration
+/// that is added here cannot be one the tests are still missing.
+pub const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("../migrations/001_init.sql")),
     (2, include_str!("../migrations/002_global_settings.sql")),
     (3, include_str!("../migrations/003_board_views.sql")),
+    (4, include_str!("../migrations/004_task_kind.sql")),
 ];
 
 pub struct Db {

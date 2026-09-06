@@ -97,6 +97,10 @@ pub struct TaskView {
     pub title: String,
     pub notes: String,
     pub done: bool,
+    /// Asked as a question rather than carried as the raw kind: the templates
+    /// only ever want to know whether this row has a checkbox, and a string
+    /// compared in a template is a typo away from silently saying no.
+    pub is_appointment: bool,
     pub version: i64,
     pub author_name: String,
     pub colour: String,
@@ -137,6 +141,7 @@ pub fn task_view(task: &Task, authors: &[User]) -> TaskView {
         title: task.title.clone(),
         notes: task.notes.clone(),
         done: task.done,
+        is_appointment: task.kind == crate::queries::KIND_APPOINTMENT,
         version: task.version,
         author_name: author.map(|u| u.name.clone()).unwrap_or_default(),
         colour: author.map_or_else(|| "#9aa3af".into(), |u| u.colour.clone()),
@@ -239,6 +244,7 @@ mod tests {
             title: format!("task {id}"),
             notes: String::new(),
             done: false,
+            kind: crate::queries::KIND_TASK.to_string(),
             author_id: 1,
             position: id,
             version: 1,

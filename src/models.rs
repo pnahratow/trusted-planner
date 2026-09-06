@@ -36,6 +36,10 @@ pub struct Task {
     pub title: String,
     pub notes: String,
     pub done: bool,
+    /// `task` or `appointment` — see `queries::KIND_TASK`. A string rather than
+    /// an enum because it is only ever compared and rendered, and the templates
+    /// compare it too.
+    pub kind: String,
     pub author_id: i64,
     pub position: i64,
     /// Carried into edit forms and checked on write — see the CAS rule (D12).

@@ -302,6 +302,11 @@ struct UpdateForm {
     title: String,
     #[serde(default)]
     notes: String,
+    /// Which of the two the editor was left on. Absent from a page that was
+    /// open before this existed, and from anything posting the form by hand,
+    /// so it falls back to the kind that carries a checkbox.
+    #[serde(default)]
+    kind: Option<String>,
     /// The version the form was rendered from.
     version: i64,
 }
@@ -315,6 +320,7 @@ async fn update(
     Form(f): Form<UpdateForm>,
 ) -> AppResult {
     let title = f.title.trim().to_string();
+    let kind = queries::kind_or_task(f.kind.as_deref().unwrap_or(queries::KIND_TASK)).to_string();
     if title.is_empty() {
         return Ok(bad("title cannot be empty"));
     }
@@ -322,7 +328,7 @@ async fn update(
     let (accepted, current, authors) = state
         .db
         .with(|conn| -> anyhow::Result<_> {
-            let accepted = queries::update_task_cas(conn, id, &title, &f.notes, f.version)?;
+            let accepted = queries::update_task_cas(conn, id, &title, &f.notes, &kind, f.version)?;
             let current = queries::task(conn, id)?;
             let authors = queries::users(conn)?;
             Ok((accepted, current, authors))
@@ -349,7 +355,17 @@ async fn update(
             state.changes.record(board_id, &key);
         }
         // Editing a title or note cannot reorder the column, so the row is the
-        // whole answer.
+        // whole answer — and it has to be the row rather than the column,
+        // because a day open in the panel over its own cell puts two elements
+        // with that column's id in the document.
+        //
+        // Making a ticked task into an appointment is the one edit that can
+        // move it: it is unticked on the way, so with completed tasks sunk to
+        // the bottom it belongs further up than it is drawn here. Nothing is
+        // wrong in the database, only this browser's picture of it, and the
+        // change was recorded above — so the poll re-fetches the column within
+        // the tick and settles it, through the same path every other browser
+        // learns about it by.
         return render(
             &state,
             &locale(&state),
@@ -363,6 +379,7 @@ async fn update(
     // Put their draft back in the fields; show the server's value alongside.
     view.title = title;
     view.notes = f.notes;
+    view.is_appointment = kind == queries::KIND_APPOINTMENT;
 
     render(
         &state,

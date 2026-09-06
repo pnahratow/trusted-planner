@@ -3,6 +3,14 @@
 <li class="task{% if task.done %} is-done{% endif %}" id="task-{{ task.id }}" data-task-id="{{ task.id }}">
   {% if show_colour %}<span class="spine" style="background: {{ task.colour }}" title="{{ task.author_name }}"></span>{% endif %}
 
+  {# An appointment has nothing to tick: it happens, and then it has happened.
+     A clock where the box would be says which kind of thing this is, rather
+     than only that it is not the other kind — and it keeps the title on the
+     same left edge as every other title in the column. #}
+  {% if task.is_appointment %}
+  <span class="kind-mark" role="img" aria-label="{{ 'Appointment' | t }}"
+        title="{{ 'Appointment' | t }}">&#9719;</span>
+  {% else %}
   <form class="task-check"
         hx-post="/task/{{ task.id }}/toggle"
         hx-target="closest .column" hx-swap="outerHTML">
@@ -12,6 +20,7 @@
       {% if task.done %}&#10003;{% endif %}
     </button>
   </form>
+  {% endif %}
 
   <button class="task-title" type="button"
           hx-get="/task/{{ task.id }}/edit"
