@@ -67,6 +67,24 @@
   {% endfor %}
   </ul>
 
+  {# Only worth showing once there is a choice to make: with one person, the
+     answer is that person and a dropdown of one explains nothing. #}
+  {% if users | length > 1 %}
+  <form method="post" action="/settings/user" class="display-form"
+        hx-post="/settings/user" hx-trigger="change, submit" hx-swap="none">
+    <input type="hidden" name="action" value="default">
+    <label class="inline-select">
+      {{ "A browser that has not chosen is" | t }}
+      <select name="id">
+        {% for u in users %}
+          <option value="{{ u.id }}" {% if u.id == default_user %}selected{% endif %}>{{ u.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  <p class="muted">{{ "A screen on the wall has nobody to ask, so it is never asked — it writes as this person until someone switches it." | t }}</p>
+  {% endif %}
+
   <form method="post" action="/settings/user" class="add-form"
           hx-post="/settings/user" hx-swap="none">
     <input type="hidden" name="action" value="create">
@@ -195,5 +213,11 @@
   <h2>{{ "This browser" | t }}</h2>
   <p>{{ "You are currently" | t }} <strong>{{ me.name if me else ("nobody" | t) }}</strong>.
      <a href="/pick">{{ "Switch identity" | t }}</a></p>
+  {# Everywhere else the default is deliberately indistinguishable from a
+     choice. Here it should not be, or there is no way to tell whether this
+     browser is pinned or simply following the setting above. #}
+  {% if me and not pinned %}
+    <p class="muted">{{ "This browser has not chosen anyone, so it follows the setting above. Switching pins it to one person." | t }}</p>
+  {% endif %}
 </section>
 {% endblock %}

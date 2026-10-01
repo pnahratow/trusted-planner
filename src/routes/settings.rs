@@ -47,10 +47,16 @@ const FIRST_COLOUR: &str = "#3563e9";
 async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     let me = current_user(&state, &jar)?;
 
-    let (users, boards, move_completed, overdue_action, language, stranded) = state
+    let pinned = crate::routes::has_own_identity(&state, &jar)?;
+
+    let (users, boards, move_completed, overdue_action, language, stranded, default_user) = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             let users = queries::users(conn)?;
+            // Resolved rather than read back raw, so the page marks whoever
+            // would actually answer — including when the stored id names
+            // somebody who has since been removed.
+            let default_user = queries::default_user(conn)?.map(|u| u.id);
             // Always nought unless something is wrong; see `stranded_tasks`.
             let stranded = queries::stranded_tasks(conn)?;
             let boards = queries::boards(conn)?;
@@ -76,6 +82,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
                 overdue_action,
                 language,
                 stranded,
+                default_user,
             ))
         })
         .context("loading the settings page")?;
@@ -96,6 +103,8 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
             language => language,
             languages => crate::i18n::LANGUAGES,
             stranded => stranded,
+            default_user => default_user,
+            pinned => pinned,
             me => me,
             theme => me.as_ref().map_or_else(|| "system".into(), |u| u.theme.clone()),
         },
@@ -158,6 +167,15 @@ async fn user_action(
                 "delete" => {
                     if let Some(id) = f.id {
                         queries::delete_user(conn, id)?;
+                    }
+                }
+                // Here rather than in `display_action` because the control is
+                // its own form: a form that does not contain the
+                // move-completed checkbox would post it absent, and absent
+                // means off.
+                "default" => {
+                    if let Some(id) = f.id {
+                        queries::set_default_user(conn, id)?;
                     }
                 }
                 _ => {}
@@ -339,7 +357,7 @@ async fn theme_action(
     Form(f): Form<ThemeForm>,
 ) -> AppResult {
     let Some(me) = current_user(&state, &jar)? else {
-        return Ok(Redirect::to("/pick").into_response());
+        return Ok(Redirect::to("/settings").into_response());
     };
     let theme = match f.theme.as_str() {
         "light" | "dark" => f.theme.as_str(),

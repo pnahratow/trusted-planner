@@ -64,7 +64,10 @@ Tests may unwrap, expect, panic and index; `clippy.toml` allows exactly that.
 Do not "fix" these; they are chosen, and the reasoning is in the README.
 
 - No authentication, no permission checks, no session store. Identity is a
-  cookie holding a user id, picked from a dropdown.
+  cookie holding a user id, picked from a dropdown. A browser with no cookie is
+  answered as the default user rather than asked: `current_user` returning
+  `None` means there are no users at all, and `queries::default_user` is total
+  for every other state.
 - Deleting never asks for confirmation. It soft-deletes and offers undo.
 - Colour means identity and only identity. There is no per-task colour.
 - Move-completed-to-bottom and the overdue rule are app-wide; theme is

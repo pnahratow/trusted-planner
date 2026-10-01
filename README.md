@@ -8,6 +8,9 @@ no accounts.
 > A "personal" board is out of the way, not protected. Do not store anything
 > genuinely sensitive here.
 
+Nor does it ask who you are: a browser with no cookie is answered as the
+default user rather than stopped at a picker. See [Who you are](#who-you-are).
+
 Out of the way is still worth something, though. The board picker lists the
 boards you are a member of, and switching identity lands you on your own board
 rather than leaving you on someone else's — so nobody has to scroll past
@@ -114,24 +117,33 @@ half-typed task, so the reload waits for the editor to close.
 
 A reload alone keeps the window where it was, which is right for a person who
 paged back to look at last week. For a screen on the wall that nobody ever
-navigates, ask for the week by name instead of by date:
+navigates, the front door already does the right thing:
 
 ```
-http://<host>:8080/b/1/w/today      the week, following the calendar
-http://<host>:8080/b/1/4w/today     four weeks, likewise
+http://<host>:8080/                 four weeks, following the calendar
 ```
 
-`today` is a start date like any other, except that it is worked out afresh on
-every render — so the reload that midnight triggers also slides the window onto
-the new week. Point a kiosk browser at it once and it stays right: no cron, no
-timer thread, nothing to restart. Dated URLs keep their exact spelling, so a
-link you send someone still means the week you meant.
+`/` sends you to `/b/<board>/4w/today`, and `today` is a start date like any
+other except that it is worked out afresh on every render — so the reload that
+midnight triggers also slides the window onto the new week. Point a kiosk
+browser at `/` once and it stays right: no cron, no timer thread, nothing to
+restart, and no identity to set up, since a browser with no cookie is answered
+as the default user. Ask for the week instead with `/b/1/w/today`.
+
+Dated URLs keep their exact spelling, so a link you send someone still means
+the week you meant.
 
 The window pins itself as soon as you touch it: the arrows, **Today** and the
 week/four-week toggle all lead to dated URLs, so a display someone has paged
 around on stops following until it is reloaded. Switching theme or user is the
 exception and deliberately so — those return you to the page you were on,
 `today` and all.
+
+Four weeks is what `/` falls back to, not what it insists on: a board still
+opens in the view it was last read in, per person (see [Views](#views)). So a
+display somebody switched to the week view keeps opening in the week view until
+somebody switches it back. That is the same memory that makes a shopping board
+open as a list, and it seemed wrong to have two rules for it.
 
 ## Views
 
@@ -327,6 +339,36 @@ stay in English. The only exception is a list the app creates for you — the
 because it is an ordinary list from then on and yours to rename. German calls
 it `Todo` as well; change the right hand side in `de.json` if you would rather
 it said something else.
+
+## Who you are
+
+A cookie holding a user id. No password, no session store, nothing to sign out
+of — the warning at the top of this file is the whole security model.
+
+A browser with no cookie is not stopped and asked. It is answered as the
+**default user**, because the browser that most often has no cookie is the
+screen in the kitchen, and there is nobody standing in front of it to answer. A
+cookie naming someone since removed falls through the same way, rather than
+stranding that browser on an identity it cannot see in order to change it.
+
+So there is exactly one state in which the app has nobody to be: no users at
+all. Everything else resolves, and it resolves without writing anything, which
+is what lets a screen with cookies disabled work at all:
+
+- the person set as the default in Settings, if that is still somebody; or
+- the first person created, otherwise.
+
+That second line is the whole of the "set it up for me" behaviour — the first
+person you add is the default because they are the earliest id, not because
+anything was written down when you added them. Which also means there is
+nothing to repair when the chosen default is removed: the stored id stops
+naming anybody, and the fallback answers again. Settings always shows whoever
+would *actually* answer, not what is stored.
+
+Choosing an identity in **Switch identity** sets the cookie and pins that
+browser; Settings says so, in the one place where the difference between a
+choice and a fallback matters. Everywhere else the two are deliberately
+indistinguishable.
 
 ## Settings
 

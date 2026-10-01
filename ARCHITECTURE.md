@@ -171,7 +171,8 @@ Opening the week:
 ```
 GET /b/1/w/2026-08-31          or /b/1/w/today, which re-resolves per render
   routes/board.rs::week
-    current_user            cookie -> User, or redirect to /pick
+    current_user            cookie -> User, else the default user;
+                            None only when there are no users at all
     start_of                the date in the URL, and the spelling to quote back
     sweep_overdue           the D23 rule, in a transaction, idempotent
                             tasks only — an appointment is never overdue
@@ -205,6 +206,7 @@ POST /task/42/toggle          <- hx-post on the checkbox form
 | Change the polling interval | `POLL_MS` in `static/app.js` |
 | Change what happens at midnight | `reloadForNewDay` in `static/app.js`; the date it compares comes from `routes/events.rs` |
 | Change where a board opens | `board_links` and `index` in `routes/board.rs` |
+| Change who an anonymous browser is | `queries::default_user`, and `current_user` in `routes/mod.rs` |
 | Change colours or spacing | the custom properties at the top of `static/app.css` |
 | Reword something German | `locales/de.json` — the English text is the key |
 | Add a language | copy `locales/de.json`, add the code to `i18n::LANGUAGES` |
@@ -232,6 +234,10 @@ POST /task/42/toggle          <- hx-post on the checkbox form
 - **`Density` comes from a header**, so a mutation triggered outside htmx (curl,
   say) answers at full density. That is the right default, but it explains why a
   hand-made request looks different from what the browser gets.
+- **`current_user` returning `None` means the app has no users**, not that
+  nobody is signed in — a browser with no cookie is answered as the default
+  user. A route that treats `None` as "ask who they are" would be sending a
+  wall display to a page nobody can answer.
 - **A render is of one particular day**, and nothing on the page repairs that
   when the day changes: `is_today` is computed at render time and the overdue
   sweep runs on page load, while the poll only re-fetches columns that

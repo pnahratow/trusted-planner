@@ -59,20 +59,54 @@ impl<S: Sync> axum::extract::FromRequestParts<S> for Density {
 /// no auth, no permission checks (D8). Everyone on the LAN is trusted.
 pub const IDENTITY_COOKIE: &str = "user_id";
 
-/// `Ok(None)` means nobody is signed in here — a normal state that routes
-/// answer with the picker. A database failure is an error, not an anonymous
-/// visitor, so it propagates instead of being flattened into `None`.
+/// Who this request is from.
+///
+/// A browser with no cookie is not a visitor to be interrogated. It is the
+/// screen in the kitchen, or a phone that cleared its storage, and there is no
+/// authentication here to stand on anyway (D8) — so it is answered as the
+/// default user rather than stopped and asked. A cookie naming someone since
+/// removed falls through the same way, instead of stranding that browser on a
+/// dead identity it cannot see to change.
+///
+/// `Ok(None)` therefore means one thing only: the app has no users yet. A
+/// database failure is an error rather than an anonymous visitor, so it
+/// propagates instead of being flattened into `None`.
 pub fn current_user(state: &AppState, jar: &CookieJar) -> Result<Option<User>> {
-    let Some(raw) = jar.get(IDENTITY_COOKIE) else {
-        return Ok(None);
-    };
-    let Ok(id) = raw.value().parse::<i64>() else {
-        return Ok(None); // a mangled cookie is not an error, just not an identity
+    // A mangled cookie is not an error, just not an identity.
+    let claimed = jar
+        .get(IDENTITY_COOKIE)
+        .and_then(|raw| raw.value().parse::<i64>().ok());
+    state
+        .db
+        .with(|conn| {
+            if let Some(id) = claimed
+                && let Some(user) = crate::queries::user(conn, id)?
+            {
+                return Ok(Some(user));
+            }
+            crate::queries::default_user(conn)
+        })
+        .context("resolving who this request is from")
+}
+
+/// Whether this browser has an identity of its own, as against being answered
+/// as the default user.
+///
+/// Only the settings page asks. Everywhere else the two are deliberately
+/// indistinguishable — that is the whole point — but a page that tells you who
+/// you are should also say whether that is a choice or a fallback.
+pub fn has_own_identity(state: &AppState, jar: &CookieJar) -> Result<bool> {
+    let Some(id) = jar
+        .get(IDENTITY_COOKIE)
+        .and_then(|raw| raw.value().parse::<i64>().ok())
+    else {
+        return Ok(false);
     };
     state
         .db
         .with(|conn| crate::queries::user(conn, id))
-        .with_context(|| format!("loading the signed-in user {id}"))
+        .map(|found| found.is_some())
+        .with_context(|| format!("checking the identity cookie for user {id}"))
 }
 
 /// The next theme in the cycle, and the symbol standing for the current one.

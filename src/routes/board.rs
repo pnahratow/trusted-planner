@@ -33,7 +33,7 @@ async fn index(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     }
 
     let Some(me) = current_user(&state, &jar)? else {
-        return Ok(Redirect::to("/pick").into_response());
+        return Ok(Redirect::to("/settings").into_response());
     };
 
     let boards = state
@@ -45,14 +45,18 @@ async fn index(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     };
 
     // Straight into the grid this board is read in, rather than always the
-    // week and a toggle away from where you were.
+    // same one and a toggle away from where you were. Four weeks when nothing
+    // is remembered: the front door is most often a screen on the wall, and a
+    // month of context is what that is for.
     let view = state
         .db
         .with(|conn| queries::remembered_view(conn, me.id, board.id))
         .with_context(|| format!("loading the remembered view of board {}", board.id))?;
-    let monday = calendar::fmt(calendar::monday_of(calendar::today()));
-    let path = view.as_deref().unwrap_or(queries::VIEW_WEEK);
-    Ok(Redirect::to(&format!("/b/{}/{path}/{monday}", board.id)).into_response())
+    let path = view.as_deref().unwrap_or(queries::VIEW_FOUR_WEEKS);
+    // `today` rather than today's date, so a browser parked on `/` and never
+    // navigated again follows the calendar instead of freezing on the day it
+    // was opened.
+    Ok(Redirect::to(&format!("/b/{}/{path}/{START_TODAY}", board.id)).into_response())
 }
 
 /// The URL spelling of a start date that means "recompute it on every render".
@@ -336,7 +340,7 @@ async fn week(
     Path((board_id, monday)): Path<(i64, String)>,
 ) -> AppResult {
     let Some(me) = current_user(&state, &jar)? else {
-        return Ok(Redirect::to("/pick").into_response());
+        return Ok(Redirect::to("/settings").into_response());
     };
     // Deliberately not snapped to a Monday. The arrows step a day at a time,
     // which only means anything if the window can start anywhere; "Today"
@@ -434,7 +438,7 @@ async fn four_weeks(
     Path((board_id, monday)): Path<(i64, String)>,
 ) -> AppResult {
     let Some(me) = current_user(&state, &jar)? else {
-        return Ok(Redirect::to("/pick").into_response());
+        return Ok(Redirect::to("/settings").into_response());
     };
     let Some((monday, spelling)) = start_of(&monday).map(|(d, s)| (calendar::monday_of(d), s))
     else {

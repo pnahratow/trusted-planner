@@ -24,6 +24,13 @@ pub const MOVE_COMPLETED: &str = "move_completed_to_bottom";
 /// hang a preference on.
 pub const LANGUAGE: &str = "language";
 
+/// Who the app answers as when a browser carries no identity of its own.
+///
+/// App-wide, like the language and for the same reason: a screen on the wall
+/// has nobody to ask, and the pages that would do the asking are exactly the
+/// ones nobody is standing in front of.
+pub const DEFAULT_USER: &str = "default_user";
+
 /// What becomes of an undone task once its day has gone by (D23).
 pub const OVERDUE_ACTION: &str = "overdue_action";
 
@@ -108,6 +115,44 @@ pub fn users(conn: &Connection) -> Result<Vec<User>> {
 pub fn user(conn: &Connection, id: i64) -> Result<Option<User>> {
     let sql = format!("SELECT {USER_COLS} FROM users WHERE id = ?1 AND deleted_at IS NULL");
     conn.query_row(&sql, params![id], map_user).optional()
+}
+
+/// The earliest surviving user.
+///
+/// By `id`, not `created_at`: two people added in the same second tie on the
+/// timestamp, and the rowid never does.
+fn first_user(conn: &Connection) -> Result<Option<User>> {
+    let sql = format!("SELECT {USER_COLS} FROM users WHERE deleted_at IS NULL ORDER BY id LIMIT 1");
+    conn.query_row(&sql, [], map_user).optional()
+}
+
+/// Who a browser with no identity of its own is answered as.
+///
+/// Total by construction rather than by repair. The stored id is only a
+/// preference: if it names nobody — never set, or set to someone since removed
+/// — the first person created is the answer. So there is no state in which a
+/// populated app has no default, nothing to fix up when a user is deleted, and
+/// no stale id to sweep. `None` means one thing only: there are no users yet.
+pub fn default_user(conn: &Connection) -> Result<Option<User>> {
+    let stored = get_setting(conn, DEFAULT_USER, "")?;
+    if let Ok(id) = stored.parse::<i64>()
+        && let Some(user) = user(conn, id)?
+    {
+        return Ok(Some(user));
+    }
+    first_user(conn)
+}
+
+/// Pin the default to a particular person.
+///
+/// Silently ignores an id that names nobody, which keeps the stored value
+/// meaningful; a caller that got it wrong would otherwise be invisible until
+/// someone wondered why the setting had no effect.
+pub fn set_default_user(conn: &Connection, id: i64) -> Result<()> {
+    if user(conn, id)?.is_some() {
+        set_setting(conn, DEFAULT_USER, &id.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn create_user(conn: &Connection, name: &str, colour: &str) -> Result<i64> {
@@ -833,6 +878,90 @@ mod tests {
         let a = create_custom_list(&conn, board, "A").unwrap();
         let b = create_custom_list(&conn, board, "B").unwrap();
         (conn, author, a, b)
+    }
+
+    /// A schema with no users and nothing stored: the one state in which there
+    /// is legitimately nobody to be.
+    fn empty() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        for (_, sql) in crate::db::MIGRATIONS {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn
+    }
+
+    /// The claim the rest of the app leans on: a populated app always has a
+    /// default, and an empty one never does. If this can be made false, every
+    /// page that no longer asks who you are has a hole in it.
+    #[test]
+    fn a_populated_app_always_has_a_default_user() {
+        let conn = empty();
+        assert!(
+            default_user(&conn).unwrap().is_none(),
+            "with no users there is nobody to be"
+        );
+
+        let first = create_user(&conn, "First", "#111111").unwrap();
+        assert_eq!(
+            default_user(&conn).unwrap().map(|u| u.id),
+            Some(first),
+            "the first person created is the default, with nothing stored"
+        );
+
+        // Later arrivals do not take it over.
+        let second = create_user(&conn, "Alphabetically-first", "#222222").unwrap();
+        assert_eq!(default_user(&conn).unwrap().map(|u| u.id), Some(first));
+
+        set_default_user(&conn, second).unwrap();
+        assert_eq!(default_user(&conn).unwrap().map(|u| u.id), Some(second));
+
+        // Removing the chosen one must not leave the app without a default:
+        // the stored id now names nobody, so the fallback answers again.
+        delete_user(&conn, second).unwrap();
+        assert_eq!(
+            default_user(&conn).unwrap().map(|u| u.id),
+            Some(first),
+            "a stored id that names nobody falls back instead of going blank"
+        );
+
+        // And the last one going leaves the one empty state, not a dangling id.
+        delete_user(&conn, first).unwrap();
+        assert!(default_user(&conn).unwrap().is_none());
+    }
+
+    /// The fallback is by id, not by name — otherwise renaming somebody would
+    /// silently move the default, and the first person created is the one a
+    /// household means by "the default".
+    #[test]
+    fn the_fallback_is_the_first_created_not_the_first_listed() {
+        let conn = empty();
+        let first = create_user(&conn, "Zoe", "#111111").unwrap();
+        create_user(&conn, "Adam", "#222222").unwrap();
+        assert_eq!(
+            users(&conn).unwrap().first().map(|u| u.name.clone()),
+            Some("Adam".to_string()),
+            "the list is by name, so Adam leads it"
+        );
+        assert_eq!(
+            default_user(&conn).unwrap().map(|u| u.id),
+            Some(first),
+            "but the default is Zoe, who was created first"
+        );
+    }
+
+    /// A stored id is a preference, not a fact, so storing a bad one must not
+    /// become a state the reader has to cope with.
+    #[test]
+    fn a_default_can_only_be_set_to_somebody_who_exists() {
+        let conn = empty();
+        let real = create_user(&conn, "Real", "#111111").unwrap();
+        set_default_user(&conn, real + 999).unwrap();
+        assert_eq!(
+            get_setting(&conn, DEFAULT_USER, "").unwrap(),
+            "",
+            "an id naming nobody is not stored"
+        );
+        assert_eq!(default_user(&conn).unwrap().map(|u| u.id), Some(real));
     }
 
     fn titles(conn: &Connection, list: i64) -> Vec<String> {
