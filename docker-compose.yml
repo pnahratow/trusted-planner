@@ -5,7 +5,7 @@
 
 services:
   planner:
-    image: ghcr.io/pnahratow/trusted-planner:0.5.1
+    image: ghcr.io/pnahratow/trusted-planner:0.6.0
     container_name: trusted-planner
     restart: unless-stopped
 
