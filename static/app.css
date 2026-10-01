@@ -309,6 +309,13 @@ button.column-head:hover { background: color-mix(in srgb, var(--accent) 8%, tran
 }
 .task:hover .icon-btn, .icon-btn:focus { opacity: 1; }
 .icon-btn:hover { color: #e0533d; }
+/* A transparent button still takes taps. On a touch screen there is no hover
+   to reveal this one, so the delete sat invisible at the end of every row and
+   a mis-aimed tap deleted a task with nothing on screen to explain where the
+   press had landed. Show it where it cannot be revealed. */
+@media (hover: none) {
+  .icon-btn { opacity: 0.45; }
+}
 
 /* Deliberately quiet: it is the empty slot at the end of the list, not a
    call to action repeated seven times across the screen. */
