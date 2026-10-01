@@ -97,6 +97,42 @@ re-rendering it would destroy the edit and the version it is checked against.
 Typing in the "add task" box does not defer, because the draft and caret are
 restored across the swap.
 
+## A board left on all day
+
+Midnight is the one change a refreshed column cannot carry, because nothing
+about the data changes: the today-highlight was decided when the page was
+rendered, and the rule that moves unticked tasks forward runs on page load
+rather than on a timer. A tab open since yesterday is therefore showing
+yesterday, quietly and in full detail.
+
+So every poll also answers with the date the server is in, and a page that no
+longer agrees reloads itself. It uses the server's date rather than the
+browser's, because the app answers "today" in `PLANNER_TZ` and a display whose
+host clock is set to UTC would otherwise turn over at the wrong moment. An open
+editor outranks the reload: a day-old highlight is a smaller loss than a
+half-typed task, so the reload waits for the editor to close.
+
+A reload alone keeps the window where it was, which is right for a person who
+paged back to look at last week. For a screen on the wall that nobody ever
+navigates, ask for the week by name instead of by date:
+
+```
+http://<host>:8080/b/1/w/today      the week, following the calendar
+http://<host>:8080/b/1/4w/today     four weeks, likewise
+```
+
+`today` is a start date like any other, except that it is worked out afresh on
+every render — so the reload that midnight triggers also slides the window onto
+the new week. Point a kiosk browser at it once and it stays right: no cron, no
+timer thread, nothing to restart. Dated URLs keep their exact spelling, so a
+link you send someone still means the week you meant.
+
+The window pins itself as soon as you touch it: the arrows, **Today** and the
+week/four-week toggle all lead to dated URLs, so a display someone has paged
+around on stops following until it is reloaded. Switching theme or user is the
+exception and deliberately so — those return you to the page you were on,
+`today` and all.
+
 ## Views
 
 A week grid, and a four-week grid, over the same data — a day is a list with a

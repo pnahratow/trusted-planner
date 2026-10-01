@@ -55,6 +55,29 @@ async fn index(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     Ok(Redirect::to(&format!("/b/{}/{path}/{monday}", board.id)).into_response())
 }
 
+/// The URL spelling of a start date that means "recompute it on every render".
+///
+/// A 24/7 display board is parked on one URL and never navigated again, so a
+/// start date baked into that URL is a window that drifts a week behind by the
+/// next Monday. This keyword is what lets the same page re-anchor itself: the
+/// client reloads when the date changes (see `app.js`), and a reload of
+/// `/w/today` lands on the current week while a reload of `/w/2026-09-28`
+/// deliberately stays where it was put.
+pub const START_TODAY: &str = "today";
+
+/// The date a start segment names, and the spelling to keep using for it.
+///
+/// The spelling is returned alongside the date because `self_url` has to round
+/// -trip it: a theme or user switch on a display board redirects to `self_url`,
+/// and resolving `today` to a fixed date there would silently stop the board
+/// following the calendar.
+fn start_of(segment: &str) -> Option<(chrono::NaiveDate, &str)> {
+    if segment == START_TODAY {
+        return Some((calendar::today(), START_TODAY));
+    }
+    calendar::parse(segment).map(|d| (d, segment))
+}
+
 /// Applies the overdue rule before a grid is drawn.
 ///
 /// Lazily, on page load, rather than from a scheduled job: a household app that
@@ -318,8 +341,17 @@ async fn week(
     // Deliberately not snapped to a Monday. The arrows step a day at a time,
     // which only means anything if the window can start anywhere; "Today"
     // returns to the tidy Monday-aligned week.
-    let Some(start) = calendar::parse(&monday) else {
+    //
+    // `today` is the one segment that is not a fixed date: it snaps to the
+    // Monday of the current week, so a display board parked here follows the
+    // calendar across midnight instead of showing the week it was opened in.
+    let Some((start, spelling)) = start_of(&monday) else {
         return Ok(Redirect::to("/").into_response());
+    };
+    let start = if spelling == START_TODAY {
+        calendar::monday_of(start)
+    } else {
+        start
     };
 
     let loc = locale(&state);
@@ -369,7 +401,11 @@ async fn week(
             show_colour => grid.show_colour,
             // Both grids share one topbar partial, so every link it needs is
             // built here rather than assembled in the template.
-            self_url => format!("/b/{board_id}/w/{}", calendar::fmt(start)),
+            self_url => format!("/b/{board_id}/w/{spelling}"),
+            // The date this page was drawn for. The client compares it with
+            // what /changes reports and reloads when they diverge, which is
+            // what moves a display board onto the new day.
+            today => calendar::fmt(calendar::today()),
             // One day at a time, so you can slide the window onto whatever
             // stretch you are actually planning.
             prev_url => format!("/b/{board_id}/w/{}", calendar::fmt(calendar::minus_days(start, 1))),
@@ -400,7 +436,8 @@ async fn four_weeks(
     let Some(me) = current_user(&state, &jar)? else {
         return Ok(Redirect::to("/pick").into_response());
     };
-    let Some(monday) = calendar::parse(&monday).map(calendar::monday_of) else {
+    let Some((monday, spelling)) = start_of(&monday).map(|(d, s)| (calendar::monday_of(d), s))
+    else {
         return Ok(Redirect::to("/").into_response());
     };
 
@@ -463,7 +500,8 @@ async fn four_weeks(
                 .take(7)
                 .map(|d| loc.t(calendar::weekday_label(*d)))
                 .collect::<Vec<_>>(),
-            self_url => format!("/b/{board_id}/4w/{}", calendar::fmt(monday)),
+            self_url => format!("/b/{board_id}/4w/{spelling}"),
+            today => calendar::fmt(calendar::today()),
             prev_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::minus_weeks(monday, 1))),
             next_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::plus_weeks(monday, 1))),
             today_url => format!("/b/{board_id}/4w/{}", calendar::fmt(calendar::monday_of(calendar::today()))),
@@ -669,5 +707,43 @@ mod tests {
         views.insert(1, "month".to_string());
         let links = board_links(&boards(), &views, queries::VIEW_FOUR_WEEKS, d("2026-08-31"));
         assert_eq!(links[0].url, "/b/1/w/2026-08-31");
+    }
+
+    #[test]
+    fn a_dated_start_resolves_to_itself_and_keeps_its_spelling() {
+        assert_eq!(
+            start_of("2026-09-03"),
+            Some((d("2026-09-03"), "2026-09-03"))
+        );
+        // The unpadded form the date parser accepts must not be rewritten here
+        // either: whatever spelling arrived is the one self_url quotes back.
+        assert_eq!(start_of("2026-9-3"), Some((d("2026-09-03"), "2026-9-3")));
+    }
+
+    #[test]
+    fn the_today_keyword_resolves_to_the_current_date() {
+        let resolved = start_of(START_TODAY);
+        assert_eq!(resolved, Some((calendar::today(), "today")));
+    }
+
+    /// The whole point of the keyword: it has to survive into `self_url`, or a
+    /// theme or user switch on a display board would pin it to a fixed date and
+    /// the board would quietly stop following the calendar.
+    #[test]
+    fn the_today_keyword_is_the_spelling_that_round_trips() {
+        let Some((_, spelling)) = start_of(START_TODAY) else {
+            panic!("today is a start segment");
+        };
+        assert_eq!(format!("/b/1/w/{spelling}"), "/b/1/w/today");
+    }
+
+    #[test]
+    fn a_start_that_is_neither_a_date_nor_the_keyword_is_refused() {
+        // "Today" is not "today": the segment is matched exactly, so a
+        // mis-cased or translated word falls through to the redirect rather
+        // than silently meaning something.
+        for raw in ["", "Today", "heute", "tomorrow", "2026-13-01", "yesterday"] {
+            assert!(start_of(raw).is_none(), "{raw} should not be a start");
+        }
     }
 }

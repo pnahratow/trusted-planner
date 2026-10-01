@@ -309,7 +309,43 @@
     window.htmx.trigger(col, "refresh-column");
   }
 
+  // ----------------------------------------------------------- day rollover
+  //
+  // A page carries the date it was rendered for, and every poll answers with
+  // the date the server is in. When they diverge the render is simply of the
+  // wrong day: the today-highlight is on yesterday's column, and the overdue
+  // sweep — which runs on page load, not on a timer — has not run for the new
+  // day. Neither is something re-fetching a column can repair, because the
+  // poll only re-fetches columns that *changed*, and midnight changes nothing.
+  //
+  // So the answer is a reload, which re-runs the sweep and re-renders every
+  // column against the new date. On a URL ending `/today` it also re-anchors
+  // the window, which is what keeps a 24/7 display board on the current week
+  // instead of the week it was switched on in.
+  //
+  // The server's date, not the browser's: the app answers "today" in
+  // PLANNER_TZ, and a display on a host set to UTC would otherwise roll over
+  // at the wrong moment.
+  var dayChanged = false;
+
+  function reloadForNewDay() {
+    // An open editor outranks this. The reload would destroy an edit in
+    // progress, and a day-old highlight is a far smaller problem than lost
+    // text; flushStale picks it up again when the editor closes.
+    if (document.querySelector(".task-editing")) {
+      dayChanged = true;
+      return;
+    }
+    window.location.reload();
+  }
+
   function flushStale() {
+    // A deferred rollover first: there is no point refreshing columns that a
+    // reload is about to replace wholesale.
+    if (dayChanged) {
+      reloadForNewDay();
+      return;
+    }
     var stale = document.querySelectorAll(".column[data-stale]");
     for (var i = 0; i < stale.length; i++) {
       if (!isBusy(stale[i])) refreshColumn(stale[i]);
@@ -339,6 +375,14 @@
         })
         .then(function (data) {
           if (!data) return;
+          // Before any column work: a reload supersedes all of it. Both
+          // dates must actually be present — treating a missing one as a
+          // mismatch would be an unbroken reload loop on a wall display.
+          var rendered = live.dataset.today;
+          if (data.today && rendered && data.today !== rendered) {
+            reloadForNewDay();
+            return;
+          }
           // The counter only ever climbs, so a smaller one means the server
           // restarted and its numbering began again. We cannot tell what was
           // missed, so re-fetch the lot.

@@ -169,9 +169,10 @@ them when you want to change what settings exist.
 Opening the week:
 
 ```
-GET /b/1/w/2026-08-31
+GET /b/1/w/2026-08-31          or /b/1/w/today, which re-resolves per render
   routes/board.rs::week
     current_user            cookie -> User, or redirect to /pick
+    start_of                the date in the URL, and the spelling to quote back
     sweep_overdue           the D23 rule, in a transaction, idempotent
                             tasks only — an appointment is never overdue
     load_grid               the lists on screen, then one query for all tasks
@@ -202,6 +203,7 @@ POST /task/42/toggle          <- hx-post on the checkbox form
 | Change how many weeks the wide view shows | `calendar::VIEW_WEEKS`, and the grid width in `app.css` |
 | Change how much a calendar cell fits | `static/app.css` — the `body.fills-screen` rules and the `max-height` media query; the server sends every task |
 | Change the polling interval | `POLL_MS` in `static/app.js` |
+| Change what happens at midnight | `reloadForNewDay` in `static/app.js`; the date it compares comes from `routes/events.rs` |
 | Change where a board opens | `board_links` and `index` in `routes/board.rs` |
 | Change colours or spacing | the custom properties at the top of `static/app.css` |
 | Reword something German | `locales/de.json` — the English text is the key |
@@ -230,6 +232,13 @@ POST /task/42/toggle          <- hx-post on the checkbox form
 - **`Density` comes from a header**, so a mutation triggered outside htmx (curl,
   say) answers at full density. That is the right default, but it explains why a
   hand-made request looks different from what the browser gets.
+- **A render is of one particular day**, and nothing on the page repairs that
+  when the day changes: `is_today` is computed at render time and the overdue
+  sweep runs on page load, while the poll only re-fetches columns that
+  *changed* — and midnight changes none. The page carries its date in
+  `#live[data-today]`, every poll answers with the server's, and a mismatch
+  reloads. Anything new that depends on today's date is correct for free if it
+  is computed during a render, and silently frozen if it is computed once.
 
 ## Poking at it
 

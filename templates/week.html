@@ -5,8 +5,10 @@
 {% block topbar %}{% include "topbar.html" %}{% endblock %}
 
 {% block content %}
-{# Tells app.js which board to poll for changes, and from where. #}
-<div id="live" data-board="{{ board.id }}" data-seq="{{ change_seq }}" hidden></div>
+{# Tells app.js which board to poll for changes, from where, and which day
+   this render is of — a day that no longer matches means reload. #}
+<div id="live" data-board="{{ board.id }}" data-seq="{{ change_seq }}"
+     data-today="{{ today }}" hidden></div>
 
 <div class="week-grid">
   {% for col in days %}
