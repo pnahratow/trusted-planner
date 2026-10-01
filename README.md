@@ -324,7 +324,7 @@ by hand:
 
 | Tag | What it is |
 |---|---|
-| `ghcr.io/pnahratow/trusted-planner:0.5.0` | a release, exactly what `v0.5.0` points at |
+| `ghcr.io/pnahratow/trusted-planner:0.5.1` | a release, exactly what `v0.5.1` points at |
 | `…:0.5` | the newest patch of that minor version |
 | `…:latest` | the newest release |
 | `…:edge` | the tip of `master`, built on every push |
@@ -343,7 +343,7 @@ credentials to pull it. To build it yourself instead — offline, or to try a
 change before tagging it:
 
 ```sh
-docker build -t ghcr.io/pnahratow/trusted-planner:0.5.0 .
+docker build -t ghcr.io/pnahratow/trusted-planner:0.5.1 .
 ```
 
 Two things to get right, both in the compose file:

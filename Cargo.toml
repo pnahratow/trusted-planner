@@ -1,6 +1,6 @@
 [package]
 name = "trusted-planner"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 description = "A self-hosted week and four-week planner for a home network"
 license = "AGPL-3.0-or-later"
