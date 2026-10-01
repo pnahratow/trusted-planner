@@ -368,12 +368,73 @@ pub fn rename_list(conn: &Connection, id: i64, name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn delete_list(conn: &Connection, id: i64) -> Result<()> {
+/// Removes a custom list, moving anything still in it to the board's overdue
+/// list first. Call inside a transaction.
+///
+/// Without the move the tasks keep `deleted_at IS NULL` while the list that
+/// reaches them does not: live rows that no screen can select and `restore`
+/// refuses, because it looks the list up with `deleted_at IS NULL` too. A
+/// container disappearing must not take entries with it silently — and
+/// `stranded_tasks` is the alarm for the day this stops being true.
+///
+/// A dated list is refused outright. Only custom lists are offered for
+/// deletion, so a day arriving here is a stale or hand-made request, and
+/// emptying a day of its tasks is not what it asked for.
+pub fn delete_list(conn: &Connection, id: i64, overdue_list_name: &str) -> Result<()> {
+    let Some(list) = list(conn, id)? else {
+        return Ok(());
+    };
+    if list.date.is_some() {
+        return Ok(());
+    }
+
+    let stays = tasks_for_list(conn, id, false)?;
+
+    // The tombstone goes down *before* the destination is worked out, because
+    // the list being removed can be the one the board already sweeps into —
+    // and `ensure_overdue_list` finds that one by id. Live, it would answer
+    // with this very list and the tasks would be moved into the thing being
+    // deleted. Dead, it cannot: every step of that lookup filters on
+    // `deleted_at IS NULL`, so it falls through to another list of the same
+    // name or makes a fresh one.
     conn.execute(
         "UPDATE lists SET deleted_at = ?2 WHERE id = ?1",
         params![id, now()],
     )?;
+
+    if !stays.is_empty() {
+        let dest = ensure_overdue_list(conn, list.board_id, overdue_list_name)?;
+        for task in stays {
+            move_task(conn, task.id, dest, i64::MAX)?;
+        }
+    }
     Ok(())
+}
+
+/// Live tasks that no screen can reach: the list holding them was removed
+/// while the board it belongs to is still here.
+///
+/// This is an invariant, not a feature — it must always be nought.
+/// `delete_list` moves tasks out before it removes a list, so a count above
+/// nought means something put a task somewhere nothing can show it, which is
+/// the failure that would otherwise be noticed by nobody: the entry is still
+/// in the database, and the only person who could miss it does not remember it
+/// exists.
+///
+/// A removed *board* is deliberately not counted. The board is the container
+/// for everything on it, and removing one is removing its contents — that is
+/// an answer, not an accident.
+pub fn stranded_tasks(conn: &Connection) -> Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks t
+         JOIN lists l ON l.id = t.list_id
+         JOIN boards b ON b.id = l.board_id
+         WHERE t.deleted_at IS NULL
+           AND l.deleted_at IS NOT NULL
+           AND b.deleted_at IS NULL",
+        [],
+        |r| r.get(0),
+    )
 }
 
 // -------------------------------------------------------------- overdue
@@ -995,7 +1056,7 @@ mod tests {
         let board = create_board(&conn, "Board").unwrap();
         let first = ensure_overdue_list(&conn, board, "Todo").unwrap();
         let second = create_custom_list(&conn, board, "Todo").unwrap();
-        delete_list(&conn, first).unwrap();
+        delete_list(&conn, first, OVERDUE_LIST_NAME).unwrap();
 
         assert_eq!(ensure_overdue_list(&conn, board, "Todo").unwrap(), second);
         assert_eq!(custom_lists(&conn, board).unwrap().len(), 1);
@@ -1092,7 +1153,7 @@ mod tests {
 
         // teardown paths, which are the least-travelled SQL in the app
         delete_task(&conn, t2).unwrap();
-        delete_list(&conn, cl).unwrap();
+        delete_list(&conn, cl, OVERDUE_LIST_NAME).unwrap();
         assert_eq!(custom_lists(&conn, b).unwrap().len(), 0);
         delete_board(&conn, b).unwrap();
         assert!(board(&conn, b).unwrap().is_none());
@@ -1126,6 +1187,135 @@ mod tests {
         let version = task(conn, id).unwrap().unwrap().version;
         assert!(update_task_cas(conn, id, title, "", KIND_APPOINTMENT, version).unwrap());
         id
+    }
+
+    /// The fear this is written against: something put on a date a year out,
+    /// forgotten completely, and then not there when the day arrives — with
+    /// nobody able to notice, because nobody remembers writing it.
+    ///
+    /// Nothing between here and the screen may quietly drop it: it keeps its
+    /// day, it survives every sweep run in the meantime, and the grid that
+    /// covers that week still finds it when the week finally comes round.
+    #[test]
+    fn an_entry_a_year_out_is_still_there_when_the_day_comes() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let far = "2027-09-04";
+        let day = ensure_day_list(&conn, board, far).unwrap();
+        let task_id = create_task(&conn, day, "passport expires", author).unwrap();
+        let appt = make_appointment(&conn, day, "wedding", author);
+
+        // A year of opening the board, every day of it, under both settings.
+        for action in [OVERDUE_TODAY, OVERDUE_LIST] {
+            for today in ["2026-09-04", "2026-12-31", "2027-01-01", "2027-09-03"] {
+                sweep_overdue(&conn, board, today, action, OVERDUE_LIST_NAME).unwrap();
+            }
+        }
+
+        for id in [task_id, appt] {
+            assert_eq!(
+                task(&conn, id).unwrap().unwrap().list_id,
+                day,
+                "a year of sweeps moved an entry off the day it was written for"
+            );
+        }
+
+        // And the week containing it still selects it. The range is compared
+        // as text, so a year away is no different from a week away.
+        let lists = day_lists_in_range(&conn, board, "2027-08-30", "2027-09-05").unwrap();
+        assert!(lists.iter().any(|l| l.id == day), "the day is in its week");
+        let titles: Vec<_> = tasks_for_list(&conn, day, true)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.title)
+            .collect();
+        assert_eq!(titles, ["passport expires", "wedding"]);
+    }
+
+    /// Removing a list must not take what is in it out of reach. The tasks
+    /// stay live either way; the question is whether anything can still show
+    /// them, and `stranded_tasks` is the thing that would notice.
+    #[test]
+    fn removing_a_list_moves_what_is_in_it_rather_than_stranding_it() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let shopping = create_custom_list(&conn, board, "Shopping").unwrap();
+        seed(&conn, shopping, author, &["milk", "bread"]);
+
+        delete_list(&conn, shopping, OVERDUE_LIST_NAME).unwrap();
+
+        assert_eq!(stranded_tasks(&conn).unwrap(), 0);
+        let todo = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
+        assert_eq!(titles(&conn, todo), ["milk", "bread"]);
+    }
+
+    /// The nastiest shape of it: the list being removed is the one the board
+    /// sweeps into, so the destination has to be worked out after it is gone
+    /// or it would be the list itself.
+    #[test]
+    fn removing_the_overdue_list_itself_strands_nothing() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let todo = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
+        seed(&conn, todo, author, &["milk"]);
+
+        delete_list(&conn, todo, OVERDUE_LIST_NAME).unwrap();
+
+        assert_eq!(stranded_tasks(&conn).unwrap(), 0);
+        let fresh = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
+        assert_ne!(fresh, todo, "a tombstone is not resurrected");
+        assert_eq!(titles(&conn, fresh), ["milk"]);
+    }
+
+    /// A day is not offered for deletion anywhere, so one arriving is a stale
+    /// or hand-made request — and emptying a day is not what it asked for.
+    #[test]
+    fn a_day_cannot_be_deleted_as_if_it_were_a_list() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let day = ensure_day_list(&conn, board, "2026-09-04").unwrap();
+        seed(&conn, day, author, &["dentist"]);
+
+        delete_list(&conn, day, OVERDUE_LIST_NAME).unwrap();
+
+        assert!(list(&conn, day).unwrap().is_some(), "the day is still here");
+        assert_eq!(titles(&conn, day), ["dentist"]);
+        assert_eq!(stranded_tasks(&conn).unwrap(), 0);
+    }
+
+    /// The alarm has to ring, or every test above it passes against a query
+    /// that always answers nought. This is the only place that strands a task
+    /// on purpose: straight SQL, the way a future bug would do it, going round
+    /// `delete_list` exactly as that bug would.
+    #[test]
+    fn the_alarm_rings_when_something_is_stranded() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let list_id = create_custom_list(&conn, board, "Shopping").unwrap();
+        seed(&conn, list_id, author, &["milk", "bread"]);
+        assert_eq!(stranded_tasks(&conn).unwrap(), 0);
+
+        conn.execute(
+            "UPDATE lists SET deleted_at = '2026-10-01T00:00:00Z' WHERE id = ?1",
+            params![list_id],
+        )
+        .unwrap();
+
+        assert_eq!(stranded_tasks(&conn).unwrap(), 2);
+    }
+
+    /// Removing a board is removing what is on it — the container is the
+    /// answer, not an accident — so it must not set off the alarm.
+    #[test]
+    fn a_removed_board_is_not_counted_as_stranded() {
+        let (conn, author, _, _) = fixture();
+        let board = create_board(&conn, "B").unwrap();
+        let list_id = create_custom_list(&conn, board, "Shopping").unwrap();
+        seed(&conn, list_id, author, &["milk"]);
+
+        delete_board(&conn, board).unwrap();
+
+        assert_eq!(stranded_tasks(&conn).unwrap(), 0);
     }
 
     /// The distinction the kind exists for: an appointment on a day that has
@@ -1374,7 +1564,7 @@ mod tests {
         let (conn, _, _, _) = fixture();
         let board = create_board(&conn, "B").unwrap();
         let first = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
-        delete_list(&conn, first).unwrap();
+        delete_list(&conn, first, OVERDUE_LIST_NAME).unwrap();
 
         let second = ensure_overdue_list(&conn, board, OVERDUE_LIST_NAME).unwrap();
         assert_ne!(second, first, "a tombstone is not resurrected");

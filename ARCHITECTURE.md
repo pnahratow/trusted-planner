@@ -5,7 +5,7 @@ to look first. The README says what the app does and why it behaves the way it
 does; this says how it is built and in what order to read it.
 
 Size, so you know what you are in for: about 3,400 lines of Rust plus 1,700
-lines of tests (95 of them), 12 templates, one 330-line JavaScript file, one
+lines of tests (101 of them), 12 templates, one 330-line JavaScript file, one
 590-line stylesheet. It is small enough to read in an afternoon, and the tour
 below is roughly that afternoon in order.
 

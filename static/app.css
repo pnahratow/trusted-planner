@@ -441,6 +441,16 @@ button.column-head:hover { background: color-mix(in srgb, var(--accent) 8%, tran
 .pick-btn:hover { border-color: var(--accent); }
 
 .hint { color: var(--muted); margin-top: var(--gap); }
+
+/* Only ever on screen when an invariant has broken, so it is allowed to be
+   loud — the same amber the edit conflict uses, which is the other place the
+   app admits something went wrong. */
+.stranded {
+  margin: 0 0 var(--gap); padding: 10px 12px;
+  background: color-mix(in srgb, #d99a1f 18%, var(--surface));
+  border: 1px solid #d99a1f; border-radius: var(--radius);
+  line-height: 1.45;
+}
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;

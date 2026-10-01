@@ -6,7 +6,7 @@ of the source and the reading order. This file is only the things that bite.
 ## Commands
 
 ```sh
-cargo test                   # 95 tests, all must pass
+cargo test                   # 101 tests, all must pass
 cargo clippy --all-targets   # pedantic + nursery are on: must be warning-free
 cargo fmt --check            # stock rustfmt, no config
 PLANNER_DATA_DIR=./data cargo run
@@ -50,6 +50,11 @@ Tests may unwrap, expect, panic and index; `clippy.toml` allows exactly that.
   runtime, by design: a missing translation renders as English.
 - **Soft delete is everywhere.** A new `SELECT` filters `deleted_at IS NULL`.
   `task_any` is the single deliberate exception, for undo.
+- **Soft-deleting a container strands what is in it.** The rows stay live while
+  nothing can select them, and `restore` refuses too, because it looks the list
+  up with `deleted_at IS NULL`. `delete_list` moves tasks out before it removes
+  a list; `queries::stranded_tasks` is the invariant, checked at startup and on
+  the settings page, and it must always be nought.
 - **A mutation answers with the re-rendered column**, never with a fragment the
   client is expected to assemble. If a handler returns something else, it will
   disagree with the polled refresh path sooner or later.

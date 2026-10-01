@@ -2,6 +2,21 @@
 {% block title %}{{ "Settings" | t }}{% endblock %}
 {% block content %}
 
+{# Nothing renders here unless an invariant has broken: entries that are still
+   in the database with no screen able to show them. It says so where someone
+   will see it, because the person who would notice the entry missing is
+   exactly the person who has forgotten it exists. #}
+{% if stranded %}
+<p class="stranded">
+  {# Count after a colon rather than inside the sentence: the count sits
+     outside the translated text because every interpolation in this app
+     happens in Rust through `i18n::fill`, and this phrasing also sidesteps
+     singular and plural, which nothing here knows how to decline. #}
+  <strong>{{ "Unreachable entries" | t }}: {{ stranded }}</strong>
+  {{ "They are on a list that was removed. Nothing is deleted — this is a fault, and the server log says so on every start." | t }}
+</p>
+{% endif %}
+
 <section class="panel">
   <h2>{{ "Users" | t }}</h2>
   <p class="muted">{{ "Colour means identity and only identity — it marks who wrote a task on a shared board." | t }}</p>

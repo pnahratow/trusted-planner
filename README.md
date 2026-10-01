@@ -199,6 +199,39 @@ it to exactly the position it held. A confirmation dialog would interrupt every
 deliberate delete to guard against the occasional slip — this way round, only
 the slip pays.
 
+On a touch screen the `×` is always visible. With a mouse it appears on hover,
+which is where a phone went wrong: a transparent button still takes taps, so
+the delete sat invisible at the end of every row with nothing to explain where
+a mis-aimed press had landed.
+
+**Removing a list does not remove what is in it.** Anything still on the list
+moves to the board's `Todo` list first — including when the list being removed
+*is* that `Todo` list, in which case a fresh one is made to hold them. A
+container disappearing must never take entries with it, because that is the
+loss nobody reports: the row is still in the database, nothing on screen can
+reach it, and the one person who would miss it is the one who has forgotten it
+exists.
+
+A day cannot be removed this way at all; only custom lists are offered, and a
+dated list arriving at that code is a stale or hand-made request.
+
+Removing a **board** is different, and does take its contents out of view: the
+board is the container for everything on it, so removing one is an answer about
+its contents rather than an accident. Nothing is erased — the rows stay, and a
+board can be brought back by clearing its `deleted_at`.
+
+### When something cannot be shown
+
+"Live task, removed list, live board" is an invariant that must always be
+nought, and the app checks it rather than assuming it. If it is ever above
+nought the server says so in the log on every start, and the settings page
+carries a notice at the top — because nobody reads the log of an appliance, and
+because this is precisely the failure that is otherwise noticed by nobody.
+
+It is a fault report, not a feature. Seeing it means something put an entry
+where nothing can show it, and the entries themselves are still in the database
+waiting to be moved back.
+
 ## Days that have passed
 
 A task still unticked when its day is over follows one app-wide rule, set under

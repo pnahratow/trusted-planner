@@ -141,6 +141,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Arc::new(Db::open(&db_path)?);
     tracing::info!(path = %db_path.display(), "database ready");
 
+    // An entry nothing can show is the one kind of loss nobody reports: it is
+    // still in the database, and the person who would miss it does not
+    // remember writing it. Say so on the way up, where it is at least on the
+    // record; the settings page says it again, because nobody reads the log of
+    // an appliance.
+    match db.with(queries::stranded_tasks) {
+        Ok(0) => {}
+        Ok(n) => tracing::warn!(
+            count = n,
+            "entries are on a removed list and no screen can reach them"
+        ),
+        Err(e) => tracing::warn!(error = %e, "could not check for unreachable entries"),
+    }
+
     let state = AppState {
         db: Arc::clone(&db),
         tmpl: Templates::new(&cfg.template_dir),

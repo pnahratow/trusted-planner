@@ -47,10 +47,12 @@ const FIRST_COLOUR: &str = "#3563e9";
 async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
     let me = current_user(&state, &jar)?;
 
-    let (users, boards, move_completed, overdue_action, language) = state
+    let (users, boards, move_completed, overdue_action, language, stranded) = state
         .db
         .with(|conn| -> anyhow::Result<_> {
             let users = queries::users(conn)?;
+            // Always nought unless something is wrong; see `stranded_tasks`.
+            let stranded = queries::stranded_tasks(conn)?;
             let boards = queries::boards(conn)?;
             let move_completed = queries::get_flag(conn, queries::MOVE_COMPLETED, true)?;
             let overdue_action =
@@ -67,7 +69,14 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
                     lists => lists,
                 });
             }
-            Ok((users, board_rows, move_completed, overdue_action, language))
+            Ok((
+                users,
+                board_rows,
+                move_completed,
+                overdue_action,
+                language,
+                stranded,
+            ))
         })
         .context("loading the settings page")?;
 
@@ -86,6 +95,7 @@ async fn page(State(state): State<AppState>, jar: CookieJar) -> AppResult {
             overdue_action => overdue_action,
             language => language,
             languages => crate::i18n::LANGUAGES,
+            stranded => stranded,
             me => me,
             theme => me.as_ref().map_or_else(|| "system".into(), |u| u.theme.clone()),
         },
@@ -227,9 +237,17 @@ async fn list_action(
     Form(f): Form<ListForm>,
 ) -> AppResult {
     let name = f.name.trim().to_string();
+    // Removing a list moves whatever is still in it to the board's overdue
+    // list, which it may have to create — named in the language in force now,
+    // the same way the sweep names it.
+    let overdue_name = crate::routes::locale(&state)
+        .t(queries::OVERDUE_LIST_NAME)
+        .to_string();
     state
         .db
-        .with(|conn| -> anyhow::Result<_> {
+        // A transaction, not a plain `with`: removing a list renumbers the
+        // positions of everything it moves out, and that must not be half done.
+        .transaction(|conn| -> anyhow::Result<_> {
             match f.action.as_str() {
                 "create" => {
                     if let Some(board_id) = f.board_id
@@ -245,7 +263,7 @@ async fn list_action(
                 }
                 "delete" => {
                     if let Some(id) = f.id {
-                        queries::delete_list(conn, id)?;
+                        queries::delete_list(conn, id, &overdue_name)?;
                     }
                 }
                 _ => {}
