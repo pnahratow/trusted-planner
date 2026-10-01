@@ -281,7 +281,12 @@
   // Short polls rather than a held-open stream: see the note at the top of
   // src/events.rs — an SSE connection per tab exhausts the browser's six
   // connections per origin and freezes the whole app at five tabs.
-  var POLL_MS = 3000;
+  //
+  // Ten seconds, not three. A longer interval cannot lose a change, only show
+  // it later: the client quotes the last seq it saw, so the next tick returns
+  // everything it missed. Three seconds was 28,800 requests a day for every
+  // tab left open, nearly all of them answering "nothing changed".
+  var POLL_MS = 10000;
   var live = document.getElementById("live");
 
   // Only an open editor blocks a refresh. Swapping the column out from under

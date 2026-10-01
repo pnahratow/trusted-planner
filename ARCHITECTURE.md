@@ -186,7 +186,7 @@ POST /task/42/toggle          <- hx-post on the checkbox form
   Density                     from the HX-Current-URL header: week or 4-week
   column_of(42)               which column does this task live in
   queries::toggle_task
-  changes.record(board, key)  other tabs will see this within ~3s
+  changes.record(board, key)  other tabs will see this within ~10s
   render_column               the column's new HTML
 <- 200, one <section class="column"> which htmx swaps into place
 ```

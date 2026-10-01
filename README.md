@@ -78,9 +78,11 @@ a hole still returns 200 to a request that never looks at the markup.
 
 ## Live updates
 
-Other people's edits appear within a few seconds. The client asks
+Other people's edits appear within about ten seconds. The client asks
 `/changes?board=N&since=<seq>` on a short poll and re-fetches only the columns
-that actually changed.
+that actually changed. A longer interval only delays an edit, never drops it:
+the client quotes the last version it saw and the answer covers everything
+since, however far behind it is.
 
 This deliberately is **not** server-sent events, though it was at first. A
 browser allows six concurrent connections per origin over HTTP/1.1, and an SSE
